@@ -48,28 +48,38 @@ and prevents infinite loops.
 */
 func Unmarshal(data []byte, v interface{}) error {
 	str := string(data)
+	var resolveErr error
 
-	// Loop limit prevents infinite recursion (e.g., A=${A})
 	for i := 0; i < 10; i++ {
-		// Find the first index of an "innermost" variable
-		loc := envVarRegex.FindStringIndex(str)
-		if loc == nil {
+		if !envVarRegex.MatchString(str) {
 			break
 		}
 
-		// Extract the content inside ${...}
-		// loc[0] is start of "${", loc[1] is end of "}"
-		content := str[loc[0]+2 : loc[1]-1]
+		replacement := envVarRegex.ReplaceAllStringFunc(str, func(match string) string {
+			if resolveErr != nil {
+				return match
+			}
 
-		// Resolve the variable value based on the operator
-		val, err := resolveVariable(content)
-		if err != nil {
-			return err
+			content := match[2 : len(match)-1]
+
+			val, err := resolveVariable(content)
+			if err != nil {
+				resolveErr = err
+				return match
+			}
+
+			return val
+		})
+
+		if resolveErr != nil {
+			return resolveErr
 		}
 
-		// Replace only this specific occurrence.
-		// Reconstructing the string ensures indices are valid for the next iteration.
-		str = str[:loc[0]] + val + str[loc[1]:]
+		if str == replacement {
+			break
+		}
+
+		str = replacement
 	}
 
 	return yaml.Unmarshal([]byte(str), v)

@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.1][] - 2025-12-01
+
+### Changed
+
+* Refactor Unmarshal loop to replace all regex matches per iteration
+  instead of one. This fixes partial expansion in large YAML/JSON files.
+
+[0.1.1]: https://github.com/WoozyMasta/jamle/compare/v0.1.0...v0.1.1
+
 ## [0.1.0][] - 2025-12-01
 
 ### Added
