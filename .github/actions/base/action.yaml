@@ -1,0 +1,48 @@
+name: Base Workflow
+description: Reusable base workflow
+
+inputs:
+  go-version:
+    description: "Go version to use"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        check-latest: true
+        cache: true
+
+    - name: Cache golangci-lint cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/golangci-lint
+        key: ${{ runner.os }}-golangci-${{ inputs.go-version }}-${{ hashFiles('**/*.go') }}
+        restore-keys: |
+          ${{ runner.os }}-golangci-${{ inputs.go-version }}-
+          ${{ runner.os }}-golangci-
+
+    - name: Run MarkdownLint
+      uses: DavidAnson/markdownlint-cli2-action@v18
+      with:
+        globs: "**/*.md"
+
+    - name: Run vet
+      shell: bash
+      run: make vet
+      env:
+        GOWORK: off
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v7
+      with:
+        version: v2.0
+
+    - name: Run test
+      shell: bash
+      run: make test
+      env:
+        GOWORK: off

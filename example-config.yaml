@@ -1,0 +1,55 @@
+database:
+  postgresql:
+    host: "${PG_HOST:=localhost}"
+    port: "${PG_PORT:5432}"
+    database: "${PG_DATABASE:=postgres}"
+    username: "${PG_USERNAME:${PG_DATABASE}}"
+    password: "${PG_PASSWORD:?}"
+    ssl_mode: "${PG_SSL_MODE:disable}"
+    max_connections: "${PG_MAX_CONN:20}"
+    timeout: "${PG_TIMEOUT:30s}"
+
+  redis:
+    host: "${REDIS_HOST:localhost}"
+    port: "${REDIS_PORT:6379}"
+    password: "${REDIS_PASSWORD:}"
+    db: "${REDIS_DB:0}"
+
+oidc:
+  issuer: "${OIDC_ISSUER:https://auth.example.com}"
+  clients:
+    - id: "${OIDC_CLIENT_WEB:web-client}"
+      secret: "${OIDC_CLIENT_WEB_SECRET:}"
+      redirect_uris:
+        - "${OIDC_WEB_REDIRECT_URI:https://app.example.com/callback}"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+
+    - id: "${OIDC_CLIENT_MOBILE:mobile-client}"
+      secret: "${OIDC_CLIENT_MOBILE_SECRET:}"
+      redirect_uris:
+        - "${OIDC_MOBILE_REDIRECT_URI:com.example.app://callback}"
+      scopes:
+        - "openid"
+        - "profile"
+
+  jwks_url: "${OIDC_JWKS_URL:${OIDC_ISSUER}/jwks}"
+
+server:
+  host: "${SERVER_HOST:0.0.0.0}"
+  port: "${SERVER_PORT:8080}"
+  debug: "${SERVER_DEBUG:false}"
+  log_level: "${LOG_LEVEL:info}"
+
+features:
+  enable_metrics: "${ENABLE_METRICS:true}"
+  enable_tracing: "${ENABLE_TRACING:false}"
+  cache_ttl: "${CACHE_TTL:300}"
+
+settings:
+  retry_attempts: "${RETRY_ATTEMPTS:3}"
+  timeout_ms: "${TIMEOUT_MS:5000}"
+  use_compression: "${USE_COMPRESSION:true}"
+  allowed_hosts: "${ALLOWED_HOSTS:localhost,127.0.0.1}"
