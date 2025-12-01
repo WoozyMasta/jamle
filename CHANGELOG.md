@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.2][] - 2025-12-01
+
+### Added
+
+* Variable escaping support. You can now use `$${VAR}` to output a literal
+  `${VAR}` string. This is essential when your configuration value needs
+  to contain syntax that looks like a variable but shouldn't be processed.
+
+[0.1.2]: https://github.com/WoozyMasta/jamle/compare/v0.1.1...v0.1.2
+
 ## [0.1.1][] - 2025-12-01
 
 ### Changed

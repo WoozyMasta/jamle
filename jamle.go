@@ -12,6 +12,7 @@ It supports recursion (nested variables) and the following variable expansion sy
   - ${VAR:default}   Same as above (shorthand).
   - ${VAR:=default}  Value of VAR, or "default" if unset/empty. Also sets VAR to "default" in the current environment.
   - ${VAR:?error}    Value of VAR, or returns an error with "error" message if VAR is unset or empty.
+  - $${VAR}          Escaping. Evaluates to the literal string ${VAR} without expansion.
 
 Example usage:
 
@@ -35,9 +36,18 @@ import (
 	"github.com/invopop/yaml"
 )
 
+// placeholders for masking braces in escaped variables
+const (
+	maskStart = "\x00"
+	maskEnd   = "\x01"
+)
+
 // envVarRegex matches the innermost ${...} pattern containing no nested braces.
 // This allows for "inside-out" expansion logic to handle nested variables like ${A:=${B}}.
 var envVarRegex = regexp.MustCompile(`\$\{([^{}]+)\}`)
+
+// escapedVarRegex matches the $${...} pattern for escaping.
+var escapedVarRegex = regexp.MustCompile(`\$\$\{([^{}]+)\}`)
 
 /*
 Unmarshal parses the YAML-encoded data and stores the result in the value pointed to by v.
@@ -50,6 +60,10 @@ func Unmarshal(data []byte, v interface{}) error {
 	str := string(data)
 	var resolveErr error
 
+	// Mask escaped variables $${VAR} -> \x00VAR\x01
+	str = escapedVarRegex.ReplaceAllString(str, maskStart+"$1"+maskEnd)
+
+	// Main expansion loop
 	for i := 0; i < 10; i++ {
 		if !envVarRegex.MatchString(str) {
 			break
@@ -81,6 +95,10 @@ func Unmarshal(data []byte, v interface{}) error {
 
 		str = replacement
 	}
+
+	// Unmask \x00VAR\x01 -> ${VAR}
+	str = strings.ReplaceAll(str, maskStart, "${")
+	str = strings.ReplaceAll(str, maskEnd, "}")
 
 	return yaml.Unmarshal([]byte(str), v)
 }

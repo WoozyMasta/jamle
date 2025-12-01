@@ -70,6 +70,7 @@ Syntax            | Description
 `${VAR:default}`  | Shorthand for the above.
 `${VAR:=default}` | Value of `VAR`, or "default" if unset/empty. **Also sets `VAR` in the current env.**
 `${VAR:?error}`   | Value of `VAR`, or returns an error with "error" message if unset.
+`$${VAR}`         | Escaping. Evaluates to the literal string `${VAR}` without expansion.
 
 ## Usage Example
 

@@ -80,6 +80,19 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 			env:      map[string]string{"SECONDARY": "sec"},
 			expected: map[string]interface{}{"value": "sec"},
 		},
+
+		// Escaping
+		{
+			name:     "escaped variable",
+			yaml:     `value: "$${TEST_VAR}"`,
+			env:      map[string]string{"TEST_VAR": "should_be_ignored"},
+			expected: map[string]interface{}{"value": "${TEST_VAR}"},
+		},
+		{
+			name:     "escaped variable inside default value",
+			yaml:     `query: "${QUERY:-rate(http_requests[$${INTERVAL}])}"`,
+			expected: map[string]interface{}{"query": "rate(http_requests[${INTERVAL}])"},
+		},
 	}
 
 	for _, tt := range tests {
