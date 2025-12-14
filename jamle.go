@@ -28,12 +28,14 @@ Example usage:
 package jamle
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/invopop/yaml"
+	yamlv3 "gopkg.in/yaml.v3"
 )
 
 // placeholders for masking braces in escaped variables
@@ -56,8 +58,82 @@ Before parsing, it recursively expands environment variables within the data.
 The function performs up to 10 passes to resolve nested variables (e.g., ${A:=${B}})
 and prevents infinite loops.
 */
-func Unmarshal(data []byte, v interface{}) error {
-	str := string(data)
+func Unmarshal(data []byte, v any) error {
+	// Parse into YAML AST (comments are stored in node fields, not in scalar values)
+	var root yamlv3.Node
+	dec := yamlv3.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(false)
+	if err := dec.Decode(&root); err != nil {
+		return err
+	}
+
+	// Expand only scalar values (never comments)
+	var resolveErr error
+	walkScalars(&root, func(s string) string {
+		if resolveErr != nil {
+			return s
+		}
+
+		out, err := expandEnvInScalar(s)
+		if err != nil {
+			resolveErr = err
+			return s
+		}
+
+		return out
+	})
+
+	if resolveErr != nil {
+		return resolveErr
+	}
+
+	// Encode back to YAML (comments preserved) then unmarshal via invopop/yaml
+	var buf bytes.Buffer
+	enc := yamlv3.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		_ = enc.Close()
+		return err
+	}
+
+	if err := enc.Close(); err != nil {
+		return err
+	}
+
+	return yaml.Unmarshal(buf.Bytes(), v)
+}
+
+// walkScalars walks the YAML AST recursively and applies fn to the Value of each ScalarNode.
+// Comments (HeadComment, LineComment, FootComment) are intentionally not touched.
+func walkScalars(n *yamlv3.Node, fn func(string) string) {
+	if n == nil {
+		return
+	}
+
+	if n.Kind == yamlv3.ScalarNode {
+		oldStyle := n.Style
+		oldTag := n.Tag
+		oldVal := n.Value
+
+		n.Value = fn(n.Value)
+
+		// If the scalar was plain and implicitly a string only because it contained ${...},
+		// clear the tag so YAML can re-resolve types (bool/int/float/null) after expansion.
+		if oldStyle == 0 && oldTag == "!!str" && oldVal != n.Value {
+			n.Tag = ""
+		}
+	}
+
+	for _, c := range n.Content {
+		walkScalars(c, fn)
+	}
+}
+
+// expandEnvInScalar expands Bash-style environment variables inside a single YAML scalar value.
+// The function operates only on the provided scalar string and has
+// no visibility into YAML structure or comments.
+func expandEnvInScalar(in string) (string, error) {
+	str := escapedVarRegex.ReplaceAllString(in, maskStart+"$1"+maskEnd)
 	var resolveErr error
 
 	// Mask escaped variables $${VAR} -> \x00VAR\x01
@@ -86,7 +162,7 @@ func Unmarshal(data []byte, v interface{}) error {
 		})
 
 		if resolveErr != nil {
-			return resolveErr
+			return "", resolveErr
 		}
 
 		if str == replacement {
@@ -100,7 +176,7 @@ func Unmarshal(data []byte, v interface{}) error {
 	str = strings.ReplaceAll(str, maskStart, "${")
 	str = strings.ReplaceAll(str, maskEnd, "}")
 
-	return yaml.Unmarshal([]byte(str), v)
+	return str, nil
 }
 
 // resolveVariable parses the content inside ${...} and applies Bash-style logic.

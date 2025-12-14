@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.3][] - 2025-12-15
+
+### Fixed
+
+* Environment variable expansion is now applied only to YAML scalar values.
+  Comments are no longer processed, preventing accidental expansion or errors
+  from `${...}` sequences inside comments.
+
+[0.1.3]: https://github.com/WoozyMasta/jamle/compare/v0.1.2...v0.1.3
+
 ## [0.1.2][] - 2025-12-01
 
 ### Added

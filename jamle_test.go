@@ -225,3 +225,22 @@ func TestUnmarshal_InfiniteLoopProtection(t *testing.T) {
 		t.Fatal("Unmarshal timed out, possible infinite loop")
 	}
 }
+
+func TestUnmarshal_DoesNotExpandInComments(t *testing.T) {
+	os.Unsetenv("COMMENT_REQ")
+
+	yamlStr := `
+# ${COMMENT_REQ:?must_not_fail}
+value: "ok" # ${COMMENT_REQ:?must_not_fail_inline}
+nested:
+  key: 1 # ${COMMENT_REQ:?must_not_fail_nested}
+`
+
+	var res map[string]interface{}
+	if err := Unmarshal([]byte(yamlStr), &res); err != nil {
+		t.Fatalf("Unexpected error (comments must not be expanded): %v", err)
+	}
+	if res["value"] != "ok" {
+		t.Fatalf("Expected value=ok, got %v", res["value"])
+	}
+}
