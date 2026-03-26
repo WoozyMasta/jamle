@@ -4,8 +4,8 @@
 provides a unified, powerful way to unmarshal YAML and JSON data
 with Bash-style environment variable expansion in Go.
 
-It acts as a smart wrapper around the robust
-[`github.com/invopop/yaml`](https://github.com/invopop/yaml).
+It includes a JSON-tag-aware YAML codec,
+so one set of struct tags works for both formats.
 
 ## Key Benefits
 
@@ -13,11 +13,9 @@ It acts as a smart wrapper around the robust
   Inject environment variables directly into your YAML/JSON configs.
 * **One Tag to Rule Them All:**
   You **don't need** `yaml` tags.
-
-  * Since `jamle` converts YAML to JSON internally before parsing,
-    it fully respects standard **`json` struct tags**.
-  * It also supports custom `MarshalJSON` and `UnmarshalJSON`
-    methods for YAML data automatically.
+  * `jamle` YAML decoding is JSON-tag-aware, so it respects
+    standard **`json` struct tags**.
+  * One struct works for JSON and YAML inputs.
 
 ## Why use jamle
 
@@ -67,10 +65,13 @@ Syntax            | Description
 ----------------- | -----------
 `${VAR}`          | Value of `VAR`, or empty string if unset.
 `${VAR:-default}` | Value of `VAR`, or "default" if `VAR` is unset or empty.
-`${VAR:default}`  | Shorthand for the above.
 `${VAR:=default}` | Value of `VAR`, or "default" if unset/empty. **Also sets `VAR` in the current env.**
 `${VAR:?error}`   | Value of `VAR`, or returns an error with "error" message if unset.
 `$${VAR}`         | Escaping. Evaluates to the literal string `${VAR}` without expansion.
+
+Note for JSON input:
+placeholders with `:` operators should be used inside JSON strings.
+Unquoted placeholders can break strict JSON syntax.
 
 ## Usage Example
 
@@ -82,7 +83,7 @@ Local, Staging, and Production environments.
 ```yaml
 server:
   # Use env var or default to localhost
-  host: "${SERVER_HOST:localhost}"
+  host: "${SERVER_HOST:-localhost}"
   # Error if SERVER_PORT is not set
   port: ${SERVER_PORT:?port is required}
 
@@ -105,15 +106,22 @@ This is perfect for:
 * **CI/CD Pipelines:** Pipe the output to tools like `jq` to extract values
 * **Conversion:** Instantly convert YAML to JSON
 
-Read from file:
+Examples:
 
 ```bash
+# Show help
+jamle --help
 # Read from file
 jamle config.yaml
-# Read from stdin (pipe)
+# Read from stdin and pipe to stdout
 cat config.yaml | jamle | jq '.server.port'
-jamle config.yaml | yq '.server.port'
-# Verify config
+# Write to file (auto by extension => YAML)
+jamle config.yaml output.yaml
+# Force output format explicitly
+jamle config.yaml output.yaml --to yaml
+# Disable required-variable errors (${VAR:?msg} behaves like ${VAR})
+jamle config.yaml --disable-required-errors
+# Set env var and read from file
 export SERVER_PORT=9000
 jamle config.yaml
 ```
@@ -133,7 +141,7 @@ import (
 
 type Config struct {
     Server struct {
-        Host string `json:"host"` // Works for YAML thanks to invopop/yaml
+        Host string `json:"host"` // Works for YAML via jamle JSON-tag-aware codec
         Port int    `json:"port"`
     } `json:"server"`
     Database struct {
@@ -160,13 +168,115 @@ func main() {
 }
 ```
 
+### Custom Resolver Example
+
+Use `UnmarshalWithOptions` when variables come from a custom source
+(for example, in-memory map, file-backed store, or secret manager adapter):
+
+```go
+package main
+
+import "github.com/woozymasta/jamle"
+
+type mapResolver map[string]string
+
+func (r mapResolver) Lookup(name string) (string, bool) {
+    v, ok := r[name]
+    return v, ok
+}
+
+type Config struct {
+    Host string `json:"host"`
+    Port int    `json:"port"`
+}
+
+var cfg Config
+_ = jamle.UnmarshalWithOptions([]byte(`
+host: ${HOST:-localhost}
+port: ${PORT:-8080}
+`), &cfg, jamle.UnmarshalOptions{
+    Resolver: mapResolver{
+        "HOST": "svc.local",
+        "PORT": "9000",
+    },
+})
+```
+
 ## Features
 
 * **JSON & YAML Support:**
   Works interchangeably on both formats.
 * **Recursive Resolution:**
-  Handles deeply nested variables (`${A:${B}}`).
+  Handles deeply nested variables (`${A:-${B}}`).
+* **Multiple Documents:**
+  `UnmarshalAll` decodes all documents from YAML streams (`---`).
+* **Custom Variable Sources:**
+  `UnmarshalWithOptions` supports non-env resolvers.
 * **Type Safety:**
   Integers and floats in YAML are preserved correctly in the destination struct.
 * **Loop Protection:**
   Built-in safeguards against infinite recursion loops.
+
+## Additional `yaml` subpackage
+
+`jamle` uses this subpackage internally
+to implement the JSON-tag-aware YAML codec. You can also use
+[`github.com/woozymasta/jamle/yaml`](https://pkg.go.dev/github.com/woozymasta/jamle/yaml)
+directly as a drop-in style alternative to `github.com/invopop/yaml`.
+
+Compared to `github.com/invopop/yaml` style usage, this package:
+
+* uses `go.yaml.in/yaml/v3`;
+* keeps JSON-tag-aware YAML decoding;
+* avoids extra YAML <-> JSON byte conversion in the main unmarshal path.
+
+```go
+import "github.com/woozymasta/jamle/yaml"
+
+type Config struct {
+    Port int `json:"port"`
+}
+
+var cfg Config
+_ = yaml.Unmarshal([]byte("port: 8080\n"), &cfg)
+```
+
+Simple helpers:
+
+Read config from file.
+Format resolution order for `ReadFile`:
+`ReadOptions.Format` -> file extension -> content probe.
+
+```go
+var cfg Config
+_ = yaml.ReadFile("config.auto", &cfg, yaml.ReadOptions{
+    Format: yaml.FormatAuto,
+})
+```
+
+Write file with explicit format and indentation via `WriteOptions`.
+
+```go
+_ = yaml.WriteFile("config.json", cfg, yaml.WriteOptions{
+    Format: yaml.FormatJSON,
+    Indent: 2,
+})
+```
+
+Marshal to bytes without filesystem I/O.
+
+```go
+out, _ := yaml.MarshalWith(cfg, yaml.WriteOptions{
+    Format: yaml.FormatYAML,
+    Indent: 2,
+})
+_ = out
+```
+
+Caveats:
+
+* `!!binary` is not preserved losslessly through `YAMLToJSON` conversion.
+  Prefer plain base64 strings without the `!!binary` tag.
+* `YAMLToJSON` may fail for YAML maps with non-JSON-compatible keys
+  (for example, complex/map keys).
+* `Unmarshal` decodes only the first document from multi-document YAML streams.

@@ -13,6 +13,32 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.2.0][] - 2026-03-27
+
+### Added
+
+* New internal `yaml` package with JSON-tag-aware decoding, conversion helpers
+  (`YAMLToJSON`, `JSONToYAML`), and file I/O helpers (`ReadFile`, `WriteFile`,
+  `MarshalWith`, `UnmarshalAuto`) on top of `go.yaml.in/yaml/v3`.
+* New options-based API for parsing:
+  `UnmarshalWithOptions`, `UnmarshalAllWithOptions`, and `UnmarshalOptions`.
+* CLI was reworked and received flags for control and management of input,
+  output, formatting, limits, multi-document processing, and env expansion.
+
+### Changed
+
+* Core unmarshal flow was reworked to YAML AST processing without the old
+  `invopop/yaml` dependency path.
+* Variable expansion engine was rewritten from regex-based replacement to
+  parser-style innermost resolution with escaping masks and pass limits.
+
+### Fixed
+
+* `${VAR:wrong}` no longer behaves like a default operator; it now follows
+  plain-variable behavior.
+
+[0.2.0]: https://github.com/WoozyMasta/jamle/compare/v0.1.3...v0.2.0
+
 ## [0.1.3][] - 2025-12-15
 
 ### Fixed
