@@ -580,10 +580,6 @@ func findInnermostVarRanges(in string) []scalarRange {
 		ranges = append(ranges, scalarRange{start: start, end: i})
 	}
 
-	sort.Slice(ranges, func(i, j int) bool {
-		return ranges[i].start < ranges[j].start
-	})
-
 	return ranges
 }
 
