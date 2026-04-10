@@ -523,6 +523,31 @@ func TestUnmarshalWithOptions_NoExpandTag_YAMLSkipDoesNotLeakPath(t *testing.T) 
 	}
 }
 
+func TestCompilePathRules_CanonicalDedupe(t *testing.T) {
+	rules := compilePathRules([]string{
+		"spec.hooks[0].script",
+		"spec.hooks.*.script",
+		"spec.hooks[12].script",
+		"spec.hooks[foo].script",
+	})
+
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 unique rules after canonical dedupe, got %d", len(rules))
+	}
+
+	got := make(map[string]struct{}, len(rules))
+	for i := range rules {
+		got[strings.Join(rules[i].segments, ".")] = struct{}{}
+	}
+
+	if _, ok := got["spec.hooks.*.script"]; !ok {
+		t.Fatalf("missing canonical wildcard rule: %#v", got)
+	}
+	if _, ok := got["spec.hooks.foo.script"]; !ok {
+		t.Fatalf("missing non-numeric index rule: %#v", got)
+	}
+}
+
 func TestUnmarshalWithOptions_NegativeTable(t *testing.T) {
 	type cfg struct {
 		A string `json:"a"`
