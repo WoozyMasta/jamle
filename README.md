@@ -202,6 +202,37 @@ port: ${PORT:-8080}
 })
 ```
 
+### Hooks scripts: keep `${...}` literal
+
+If a YAML field contains shell script with `${...}`,
+you usually want to skip jamle expansion for that field.
+
+Use struct tag `jamle:"noexpand"`:
+
+```go
+type Hook struct {
+    Script string `json:"script" jamle:"noexpand"`
+    Args   string `json:"args"`
+}
+```
+
+Use path-based ignore rules for dynamic or external models:
+
+```go
+_ = jamle.UnmarshalWithOptions(data, &cfg, jamle.UnmarshalOptions{
+    IgnoreExpandPaths: []string{
+        "spec.hooks.*.*.script",
+    },
+})
+```
+
+If only one expression must stay literal in an expandable field,
+use escaping:
+
+```yaml
+query: "${QUERY:-rate(http_requests[$${INTERVAL}])}"
+```
+
 ## Features
 
 * **JSON & YAML Support:**
