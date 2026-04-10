@@ -125,12 +125,12 @@ func Unmarshal(data []byte, v any) error {
 
 // UnmarshalWithOptions parses YAML and expands ${...} using configured options.
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
-	resolvedOpts := resolveOptions(opts, reflect.TypeOf(v))
-
 	// Fast path: if there are no variable markers, decode directly.
 	if !bytes.Contains(data, []byte("${")) {
 		return jyaml.Unmarshal(data, v)
 	}
+
+	resolvedOpts := resolveOptions(opts, reflect.TypeOf(v))
 
 	// Parse into YAML AST (comments are stored in node fields, not in scalar values)
 	var root goyaml.Node
