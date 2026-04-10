@@ -434,6 +434,10 @@ func expandEnvInScalar(in string, opts runtimeOptions) (string, error) {
 		str = replacement
 	}
 
+	if strings.IndexByte(str, maskStart[0]) < 0 {
+		return str, nil
+	}
+
 	// Unmask \x00VAR\x01 -> ${VAR}
 	return unmaskReplacer.Replace(str), nil
 }
