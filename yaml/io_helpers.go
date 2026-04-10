@@ -245,14 +245,8 @@ func marshalYAMLWithIndent(v any, indent int) ([]byte, error) {
 		return Marshal(v)
 	}
 
-	rawJSON, err := json.Marshal(v)
+	normalized, err := normalizeYAMLMarshalInput(v)
 	if err != nil {
-		return nil, err
-	}
-
-	// Keep number typing behavior consistent with JSONToYAML.
-	var normalized any
-	if err := goyaml.Unmarshal(rawJSON, &normalized); err != nil {
 		return nil, err
 	}
 

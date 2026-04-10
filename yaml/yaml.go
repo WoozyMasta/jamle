@@ -19,14 +19,14 @@ import (
 // Marshal the object into JSON then converts JSON to YAML and returns the
 // YAML.
 func Marshal(o any) ([]byte, error) {
-	j, err := json.Marshal(o)
+	normalized, err := normalizeYAMLMarshalInput(o)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling into JSON: %w", err)
+		return nil, fmt.Errorf("error normalizing object for YAML: %w", err)
 	}
 
-	y, err := JSONToYAML(j)
+	y, err := yaml.Marshal(normalized)
 	if err != nil {
-		return nil, fmt.Errorf("error converting JSON to YAML: %w", err)
+		return nil, fmt.Errorf("error marshaling normalized object to YAML: %w", err)
 	}
 
 	return y, nil
