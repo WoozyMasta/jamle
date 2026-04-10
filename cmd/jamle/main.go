@@ -37,10 +37,10 @@ type cliOptions struct {
 	} `positional-args:"yes"`
 
 	To                    string   `short:"t" long:"to" choice:"auto" choice:"json" choice:"yaml" default:"auto" description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json."`
+	IgnoreExpandPaths     []string `short:"I" long:"ignore-expand-path" value-name:"PATH" description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated."`
 	Indent                int      `short:"i" long:"indent" value-name:"N" default:"2" description:"Output indentation. Use 0 for compact output."`
 	MaxBytes              int64    `short:"m" long:"max-bytes" value-name:"N" default:"67108864" description:"Maximum input size in bytes."`
 	MaxPasses             int      `short:"p" long:"max-passes" value-name:"N" default:"10" description:"Maximum number of variable expansion passes."`
-	IgnoreExpandPaths     []string `short:"I" long:"ignore-expand-path" value-name:"PATH" description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated."`
 	All                   bool     `short:"a" long:"all" description:"Decode all input documents (YAML multi-document stream)."`
 	DisableAssignment     bool     `short:"A" long:"disable-assignment" description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}."`
 	DisableRequiredErrors bool     `short:"R" long:"disable-required-errors" description:"Disable errors for ${VAR:?error}; behaves like ${VAR}."`
