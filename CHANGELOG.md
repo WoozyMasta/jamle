@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.3.0][] - 2026-04-10
+
+### Added
+
+* `UnmarshalOptions.IgnoreExpandPaths` for path-based skip rules during
+  `${...}` expansion (for example `spec.hooks.*.*.script`).
+* Struct tag `jamle:"noexpand"` support for opt-out expansion on selected
+  fields during `UnmarshalWithOptions` and `UnmarshalAllWithOptions`.
+* New repeatable CLI flag `--ignore-expand-path PATH`
+  to skip expansion for matching YAML key paths without code changes.
+
+### Changed
+
+* Env expansion walk is now path-aware across mappings and sequences.
+* Ignore path patterns are compiled once per unmarshal call
+  and reused for all scalar nodes.
+
+[0.3.0]: https://github.com/WoozyMasta/jamle/compare/v0.2.0...v0.3.0
+
 ## [0.2.0][] - 2026-03-27
 
 ### Added
