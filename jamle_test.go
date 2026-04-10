@@ -414,6 +414,97 @@ func TestUnmarshalWithOptions(t *testing.T) {
 	})
 }
 
+func TestUnmarshalWithOptions_IgnoreExpandPaths(t *testing.T) {
+	type hookStep struct {
+		Script string `json:"script"`
+		Args   string `json:"args"`
+	}
+
+	type cfg struct {
+		Spec struct {
+			Hooks   [][]hookStep `json:"hooks"`
+			Token   string       `json:"token"`
+			Escaped string       `json:"escaped"`
+		} `json:"spec"`
+	}
+
+	input := []byte(`
+spec:
+  hooks:
+    - - script: "echo ${HOOK_SCRIPT:-raw}"
+        args: "${HOOK_ARG:-default-arg}"
+    - - script: "echo ${POST_SCRIPT:-post-raw}"
+        args: "${POST_ARG:-post-arg}"
+  token: "${TOKEN:-token-v}"
+  escaped: "$${LITERAL_TOKEN}"
+`)
+
+	var got cfg
+	err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
+		IgnoreExpandPaths: []string{"spec.hooks.*.*.script"},
+	})
+	if err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Spec.Hooks[0][0].Script != "echo ${HOOK_SCRIPT:-raw}" {
+		t.Fatalf("script path must stay untouched, got %q", got.Spec.Hooks[0][0].Script)
+	}
+	if got.Spec.Hooks[1][0].Script != "echo ${POST_SCRIPT:-post-raw}" {
+		t.Fatalf("script path must stay untouched, got %q", got.Spec.Hooks[1][0].Script)
+	}
+	if got.Spec.Hooks[0][0].Args != "default-arg" {
+		t.Fatalf("args must be expanded, got %q", got.Spec.Hooks[0][0].Args)
+	}
+	if got.Spec.Hooks[1][0].Args != "post-arg" {
+		t.Fatalf("args must be expanded, got %q", got.Spec.Hooks[1][0].Args)
+	}
+	if got.Spec.Token != "token-v" {
+		t.Fatalf("token must be expanded, got %q", got.Spec.Token)
+	}
+	if got.Spec.Escaped != "${LITERAL_TOKEN}" {
+		t.Fatalf("escaped placeholder mismatch: got %q", got.Spec.Escaped)
+	}
+}
+
+func TestUnmarshalWithOptions_NoExpandTag(t *testing.T) {
+	type hookStep struct {
+		Script string `json:"script" jamle:"noexpand"`
+		Args   string `json:"args"`
+	}
+
+	type cfg struct {
+		Spec struct {
+			Hooks [][]hookStep `json:"hooks"`
+			Token string       `json:"token"`
+		} `json:"spec"`
+	}
+
+	input := []byte(`
+spec:
+  hooks:
+    - - script: "echo ${HOOK_SCRIPT:-raw}"
+        args: "${HOOK_ARG:-default-arg}"
+  token: "${TOKEN:-token-v}"
+`)
+
+	var got cfg
+	err := UnmarshalWithOptions(input, &got, UnmarshalOptions{})
+	if err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Spec.Hooks[0][0].Script != "echo ${HOOK_SCRIPT:-raw}" {
+		t.Fatalf("noexpand script mismatch: got %q", got.Spec.Hooks[0][0].Script)
+	}
+	if got.Spec.Hooks[0][0].Args != "default-arg" {
+		t.Fatalf("args must still expand, got %q", got.Spec.Hooks[0][0].Args)
+	}
+	if got.Spec.Token != "token-v" {
+		t.Fatalf("token must still expand, got %q", got.Spec.Token)
+	}
+}
+
 func TestUnmarshalWithOptions_NegativeTable(t *testing.T) {
 	type cfg struct {
 		A string `json:"a"`

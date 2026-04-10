@@ -61,6 +61,32 @@ Example (custom resolver):
 		panic(err)
 	}
 
+Example (disable expansion for hook scripts):
+
+	type Hook struct {
+		Script string `json:"script" jamle:"noexpand"`
+		Args   string `json:"args"`
+	}
+
+	type Config struct {
+		Spec struct {
+			Hooks [][]Hook `json:"hooks"`
+		} `json:"spec"`
+	}
+
+	var cfg Config
+	err := jamle.UnmarshalWithOptions([]byte(`
+	spec:
+	  hooks:
+	    - - script: "echo ${HOME}"
+	        args: "${HOOK_ARGS:---verbose}"
+	`), &cfg, jamle.UnmarshalOptions{
+		IgnoreExpandPaths: []string{"spec.hooks.*.*.script"},
+	})
+	if err != nil {
+		panic(err)
+	}
+
 Example (multi-document YAML stream):
 
 	var all []Config
@@ -84,6 +110,10 @@ Behavior notes:
     behave like ${VAR:-default} without mutating resolver state.
   - Use UnmarshalOptions.DisableRequiredErrors to make ${VAR:?error}
     behave like ${VAR}.
+  - Use UnmarshalOptions.IgnoreExpandPaths or struct tag
+    `jamle:"noexpand"` when YAML contains shell `${...}` fragments
+    that must stay literal.
+  - For literal `${...}` in expandable fields, use `$${...}` escaping.
   - ${VAR:=default} requires assignment support from resolver.
     With UnmarshalWithOptions/UnmarshalAllWithOptions, this operator returns
     an error unless the resolver also supports setting values.

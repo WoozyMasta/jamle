@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	jyaml "github.com/woozymasta/jamle/yaml"
 	goyaml "go.yaml.in/yaml/v3"
@@ -40,6 +41,10 @@ type UnmarshalOptions struct {
 	// Resolver provides values for `${VAR}` expansion.
 	// When nil, process environment resolver is used.
 	Resolver Resolver `json:"resolver" yaml:"resolver" jsonschema:"-"`
+
+	// IgnoreExpandPaths skips expansion for scalar nodes whose YAML key path
+	// matches one of these glob patterns (dot-separated, `*` for one segment).
+	IgnoreExpandPaths []string `json:"ignoreExpandPaths,omitempty" yaml:"ignoreExpandPaths,omitempty"`
 
 	// MaxPasses limits nested expansion passes.
 	// When <= 0, default max pass count is used.
@@ -78,6 +83,9 @@ func (envResolver) Set(name, value string) error {
 // unmaskReplacer restores masked escaped variables back to ${...}.
 var unmaskReplacer = strings.NewReplacer(maskStart, "${", maskEnd, "}")
 
+// noExpandPathCache stores compiled noexpand paths by root output type.
+var noExpandPathCache sync.Map
+
 // scalarRange describes one ${...} scalar segment in source string.
 type scalarRange struct {
 	start int
@@ -90,9 +98,15 @@ type envLookup struct {
 	exists bool
 }
 
+// pathRule stores a compiled path matching rule.
+type pathRule struct {
+	segments []string
+}
+
 // runtimeOptions stores normalized expansion options for one unmarshal call.
 type runtimeOptions struct {
 	resolver        Resolver
+	ignorePathRules []pathRule
 	maxPasses       int
 	allowAssignment bool
 	enforceRequired bool
@@ -111,7 +125,7 @@ func Unmarshal(data []byte, v any) error {
 
 // UnmarshalWithOptions parses YAML and expands ${...} using configured options.
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
-	resolvedOpts := resolveOptions(opts)
+	resolvedOpts := resolveOptions(opts, reflect.TypeOf(v))
 
 	// Fast path: if there are no variable markers, decode directly.
 	if !bytes.Contains(data, []byte("${")) {
@@ -142,8 +156,6 @@ func UnmarshalAll(data []byte, out any) error {
 
 // UnmarshalAllWithOptions parses all YAML documents using configured options.
 func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error {
-	resolvedOpts := resolveOptions(opts)
-
 	outValue := reflect.ValueOf(out)
 	if !outValue.IsValid() {
 		return fmt.Errorf("%w, got %T", ErrOutMustBePointerToSlice, out)
@@ -154,6 +166,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 
 	sliceValue := outValue.Elem()
 	elemType := sliceValue.Type().Elem()
+	resolvedOpts := resolveOptions(opts, elemType)
 	containsVars := bytes.Contains(data, []byte("${"))
 
 	dec := goyaml.NewDecoder(bytes.NewReader(data))
@@ -208,48 +221,183 @@ func decodeDocument(root *goyaml.Node, elemType reflect.Type) (reflect.Value, er
 
 // expandEnvInNode applies scalar env expansion to a parsed YAML document.
 func expandEnvInNode(root *goyaml.Node, opts runtimeOptions) error {
+	if len(opts.ignorePathRules) == 0 {
+		return expandEnvInNodeFast(root, opts)
+	}
+
+	return expandEnvInNodeWithPath(root, nil, opts)
+}
+
+// expandEnvInNodeFast applies scalar env expansion without path tracking.
+func expandEnvInNodeFast(root *goyaml.Node, opts runtimeOptions) error {
 	var resolveErr error
-	walkScalars(root, func(s string) string {
+
+	walkScalarNodes(root, func(n *goyaml.Node) {
 		if resolveErr != nil {
-			return s
+			return
 		}
 
-		out, err := expandEnvInScalar(s, opts)
-		if err != nil {
-			resolveErr = err
-			return s
-		}
-
-		return out
+		resolveErr = expandScalarNodeValue(n, opts)
 	})
 
 	return resolveErr
 }
 
-// walkScalars walks the YAML AST recursively and applies fn to the Value of each ScalarNode.
-// Comments (HeadComment, LineComment, FootComment) are intentionally not touched.
-func walkScalars(n *goyaml.Node, fn func(string) string) {
+// walkScalarNodes walks YAML AST and calls fn for scalar nodes only.
+func walkScalarNodes(n *goyaml.Node, fn func(*goyaml.Node)) {
 	if n == nil {
 		return
 	}
 
 	if n.Kind == goyaml.ScalarNode {
-		oldStyle := n.Style
-		oldTag := n.Tag
-		oldVal := n.Value
-
-		n.Value = fn(n.Value)
-
-		// If the scalar was plain and implicitly a string only because it contained ${...},
-		// clear the tag so YAML can re-resolve types (bool/int/float/null) after expansion.
-		if oldStyle == 0 && oldTag == "!!str" && oldVal != n.Value {
-			n.Tag = ""
-		}
+		fn(n)
 	}
 
 	for _, c := range n.Content {
-		walkScalars(c, fn)
+		walkScalarNodes(c, fn)
 	}
+}
+
+// expandEnvInNodeWithPath applies env expansion recursively with path tracking.
+func expandEnvInNodeWithPath(n *goyaml.Node, path []string, opts runtimeOptions) error {
+	if n == nil {
+		return nil
+	}
+
+	switch n.Kind {
+	case goyaml.DocumentNode:
+		for _, child := range n.Content {
+			if err := expandEnvInNodeWithPath(child, path, opts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	case goyaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			keyNode := n.Content[i]
+			valueNode := n.Content[i+1]
+
+			nextPath := appendPathSegment(path, pathSegmentFromKeyNode(keyNode))
+
+			if keyNode.Kind == goyaml.ScalarNode {
+				if err := expandEnvInScalarNode(keyNode, nextPath, opts); err != nil {
+					return err
+				}
+
+				nextPath[len(nextPath)-1] = keyNode.Value
+			}
+
+			if err := expandEnvInNodeWithPath(valueNode, nextPath, opts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	case goyaml.SequenceNode:
+		for _, child := range n.Content {
+			nextPath := appendPathSegment(path, "*")
+			if err := expandEnvInNodeWithPath(child, nextPath, opts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	case goyaml.ScalarNode:
+		return expandEnvInScalarNode(n, path, opts)
+
+	default:
+		for _, child := range n.Content {
+			if err := expandEnvInNodeWithPath(child, path, opts); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+}
+
+// expandEnvInScalarNode expands one scalar node value when path is not ignored.
+func expandEnvInScalarNode(n *goyaml.Node, path []string, opts runtimeOptions) error {
+	if shouldIgnorePath(path, opts.ignorePathRules) {
+		return nil
+	}
+
+	return expandScalarNodeValue(n, opts)
+}
+
+// expandScalarNodeValue expands scalar value and restores implicit YAML tags.
+func expandScalarNodeValue(n *goyaml.Node, opts runtimeOptions) error {
+	oldStyle := n.Style
+	oldTag := n.Tag
+	oldValue := n.Value
+
+	out, err := expandEnvInScalar(n.Value, opts)
+	if err != nil {
+		return err
+	}
+
+	n.Value = out
+
+	// If scalar was plain and implicitly !!str due to ${...},
+	// clear the tag so YAML can re-resolve native scalar types.
+	if oldStyle == 0 && oldTag == "!!str" && oldValue != n.Value {
+		n.Tag = ""
+	}
+
+	return nil
+}
+
+// shouldIgnorePath reports whether path matches at least one ignore rule.
+func shouldIgnorePath(path []string, rules []pathRule) bool {
+	for _, rule := range rules {
+		if pathRuleMatches(path, rule) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// pathRuleMatches reports whether compiled rule matches a scalar path.
+func pathRuleMatches(path []string, rule pathRule) bool {
+	if len(path) != len(rule.segments) {
+		return false
+	}
+
+	for i := range path {
+		if rule.segments[i] == "*" {
+			continue
+		}
+		if rule.segments[i] != path[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// pathSegmentFromKeyNode extracts one path segment from mapping key node.
+func pathSegmentFromKeyNode(n *goyaml.Node) string {
+	if n == nil {
+		return "*"
+	}
+	if n.Kind != goyaml.ScalarNode {
+		return "*"
+	}
+
+	return n.Value
+}
+
+// appendPathSegment returns a new path with one additional segment.
+func appendPathSegment(path []string, segment string) []string {
+	next := make([]string, len(path)+1)
+	copy(next, path)
+	next[len(path)] = segment
+	return next
 }
 
 // expandEnvInScalar expands ${...} variables using resolved options.
@@ -559,7 +707,7 @@ func lookupEnvWithCache(
 }
 
 // resolveOptions normalizes options and applies defaults.
-func resolveOptions(opts UnmarshalOptions) runtimeOptions {
+func resolveOptions(opts UnmarshalOptions, outType reflect.Type) runtimeOptions {
 	resolver := opts.Resolver
 	if resolver == nil {
 		resolver = envResolver{}
@@ -570,10 +718,282 @@ func resolveOptions(opts UnmarshalOptions) runtimeOptions {
 		maxPasses = defaultMaxPasses
 	}
 
-	return runtimeOptions{
+	ignorePaths := append([]string{}, opts.IgnoreExpandPaths...)
+	if outType != nil {
+		ignorePaths = append(ignorePaths, collectNoExpandPathsCached(outType)...)
+	}
+
+	runtime := runtimeOptions{
 		resolver:        resolver,
 		maxPasses:       maxPasses,
 		allowAssignment: !opts.DisableAssignment,
 		enforceRequired: !opts.DisableRequiredErrors,
 	}
+	if len(ignorePaths) == 0 {
+		return runtime
+	}
+
+	runtime.ignorePathRules = compilePathRules(ignorePaths)
+	return runtime
+}
+
+// compilePathRules parses and deduplicates path rules once per call.
+func compilePathRules(patterns []string) []pathRule {
+	rules := make([]pathRule, 0, len(patterns))
+	seen := make(map[string]struct{}, len(patterns))
+
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+
+		segments := splitPathPattern(pattern)
+		if len(segments) == 0 {
+			continue
+		}
+
+		canonical := strings.Join(segments, ".")
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+
+		rules = append(rules, pathRule{segments: segments})
+	}
+
+	return rules
+}
+
+// splitPathPattern splits `a.b[0].c` into path segments and normalizes indexes.
+func splitPathPattern(pattern string) []string {
+	segments := make([]string, 0, 8)
+	var current strings.Builder
+
+	flushCurrent := func() {
+		if current.Len() == 0 {
+			return
+		}
+
+		segments = append(segments, current.String())
+		current.Reset()
+	}
+
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '.':
+			flushCurrent()
+		case '[':
+			flushCurrent()
+
+			end := strings.IndexByte(pattern[i:], ']')
+			if end <= 0 {
+				continue
+			}
+
+			token := strings.TrimSpace(pattern[i+1 : i+end])
+			if token == "" || token == "*" || isNumericPathIndex(token) {
+				segments = append(segments, "*")
+			} else {
+				segments = append(segments, token)
+			}
+
+			i += end
+		default:
+			current.WriteByte(pattern[i])
+		}
+	}
+
+	flushCurrent()
+
+	return segments
+}
+
+// isNumericPathIndex reports whether token contains only decimal digits.
+func isNumericPathIndex(token string) bool {
+	if token == "" {
+		return false
+	}
+
+	for i := 0; i < len(token); i++ {
+		if token[i] < '0' || token[i] > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// collectNoExpandPaths builds ignore paths from `jamle:"noexpand"` tags.
+func collectNoExpandPaths(outType reflect.Type) []string {
+	root := indirectType(outType)
+	if root == nil {
+		return nil
+	}
+
+	paths := make([]string, 0, 8)
+	visited := make(map[reflect.Type]bool)
+	collectNoExpandPathsFromType(root, nil, visited, &paths)
+	if len(paths) == 0 {
+		return nil
+	}
+
+	sort.Strings(paths)
+	return compactSortedStrings(paths)
+}
+
+// collectNoExpandPathsCached returns cached noexpand paths for output type.
+func collectNoExpandPathsCached(outType reflect.Type) []string {
+	root := indirectType(outType)
+	if root == nil {
+		return nil
+	}
+
+	cached, ok := noExpandPathCache.Load(root)
+	if ok {
+		return cached.([]string)
+	}
+
+	paths := collectNoExpandPaths(root)
+	actual, _ := noExpandPathCache.LoadOrStore(root, paths)
+
+	return actual.([]string)
+}
+
+// collectNoExpandPathsFromType walks reflect types and appends noexpand paths.
+func collectNoExpandPathsFromType(
+	t reflect.Type,
+	path []string,
+	visited map[reflect.Type]bool,
+	out *[]string,
+) {
+	t = indirectType(t)
+	if t == nil {
+		return
+	}
+
+	switch t.Kind() {
+	case reflect.Struct:
+		if visited[t] {
+			return
+		}
+		visited[t] = true
+		defer delete(visited, t)
+
+		for i := 0; i < t.NumField(); i++ {
+			sf := t.Field(i)
+			if shouldSkipStructField(sf) {
+				continue
+			}
+
+			fieldPath, inline := pathForStructField(path, sf)
+			if inline {
+				collectNoExpandPathsFromType(sf.Type, path, visited, out)
+				continue
+			}
+			if len(fieldPath) == 0 {
+				continue
+			}
+
+			if hasNoExpandTag(sf.Tag.Get("jamle")) {
+				*out = append(*out, strings.Join(fieldPath, "."))
+			}
+
+			collectNoExpandPathsFromType(sf.Type, fieldPath, visited, out)
+		}
+
+	case reflect.Slice, reflect.Array, reflect.Map:
+		nextPath := appendPathSegment(path, "*")
+		collectNoExpandPathsFromType(t.Elem(), nextPath, visited, out)
+	}
+}
+
+// shouldSkipStructField reports whether field should be ignored for path build.
+func shouldSkipStructField(sf reflect.StructField) bool {
+	if sf.PkgPath != "" {
+		return true
+	}
+
+	return jsonTagName(sf) == "-"
+}
+
+// pathForStructField builds one path segment for a struct field.
+func pathForStructField(path []string, sf reflect.StructField) ([]string, bool) {
+	jsonName := jsonTagName(sf)
+	if jsonName == "-" {
+		return nil, false
+	}
+
+	fieldType := indirectType(sf.Type)
+	if sf.Anonymous && jsonName == "" && fieldType != nil && fieldType.Kind() == reflect.Struct {
+		return path, true
+	}
+
+	if jsonName != "" {
+		return appendPathSegment(path, jsonName), false
+	}
+
+	yamlName := yamlTagName(sf)
+	if yamlName != "" && yamlName != "-" {
+		return appendPathSegment(path, yamlName), false
+	}
+
+	return appendPathSegment(path, strings.ToLower(sf.Name)), false
+}
+
+// hasNoExpandTag reports whether jamle tag has `noexpand` option.
+func hasNoExpandTag(tag string) bool {
+	for item := range strings.SplitSeq(tag, ",") {
+		if strings.TrimSpace(item) == "noexpand" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// jsonTagName returns first value token from `json` tag.
+func jsonTagName(sf reflect.StructField) string {
+	return firstTagValue(sf.Tag.Get("json"))
+}
+
+// yamlTagName returns first value token from `yaml` tag.
+func yamlTagName(sf reflect.StructField) string {
+	return firstTagValue(sf.Tag.Get("yaml"))
+}
+
+// firstTagValue returns first token before comma in a struct tag.
+func firstTagValue(tag string) string {
+	name, _, _ := strings.Cut(tag, ",")
+	return strings.TrimSpace(name)
+}
+
+// indirectType dereferences pointers until a concrete type is reached.
+func indirectType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	return t
+}
+
+// compactSortedStrings compacts sorted slice values in-place.
+func compactSortedStrings(in []string) []string {
+	if len(in) < 2 {
+		return in
+	}
+
+	out := in[:1]
+	last := in[0]
+
+	for i := 1; i < len(in); i++ {
+		if in[i] == last {
+			continue
+		}
+
+		last = in[i]
+		out = append(out, in[i])
+	}
+
+	return out
 }
