@@ -505,6 +505,24 @@ spec:
 	}
 }
 
+func TestUnmarshalWithOptions_NoExpandTag_YAMLSkipDoesNotLeakPath(t *testing.T) {
+	type cfg struct {
+		Ignored string `yaml:"-" jamle:"noexpand"`
+		Value   string `json:"ignored"`
+	}
+
+	input := []byte("ignored: \"${SAME_KEY:-expanded}\"\n")
+
+	var got cfg
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Value != "expanded" {
+		t.Fatalf("value must be expanded, got %q", got.Value)
+	}
+}
+
 func TestUnmarshalWithOptions_NegativeTable(t *testing.T) {
 	type cfg struct {
 		A string `json:"a"`

@@ -914,7 +914,11 @@ func shouldSkipStructField(sf reflect.StructField) bool {
 		return true
 	}
 
-	return jsonTagName(sf) == "-"
+	if jsonTagName(sf) == "-" {
+		return true
+	}
+
+	return yamlTagName(sf) == "-"
 }
 
 // pathForStructField builds one path segment for a struct field.
@@ -934,6 +938,10 @@ func pathForStructField(path []string, sf reflect.StructField) ([]string, bool) 
 	}
 
 	yamlName := yamlTagName(sf)
+	if yamlName == "-" {
+		return nil, false
+	}
+
 	if yamlName != "" && yamlName != "-" {
 		return appendPathSegment(path, yamlName), false
 	}
