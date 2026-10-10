@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## Unreleased
+
+### Added
+
+* Root unmarshal APIs support strict unknown-field validation
+  after expansion for every YAML document.
+* Missing configuration fields can receive source-aware values
+  from `default` struct tags.
+* `UnmarshalOptions.DisableDefaults` disables `default` struct tag processing
+  for a decoding operation.
+
+### Changed
+
+* Single-document unmarshal APIs now reject additional YAML documents.
+
 ## [0.3.0][] - 2026-04-10
 
 ### Added
