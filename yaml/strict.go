@@ -29,16 +29,33 @@ type DecodeOptions struct {
 
 // UnmarshalWithOptions decodes one YAML document with the supplied options.
 func UnmarshalWithOptions(data []byte, v any, opts DecodeOptions) error {
+	root, err := decodeSingleDocument(data)
+	if err != nil {
+		return err
+	}
+
+	return UnmarshalNodeWithOptions(root, v, opts)
+}
+
+// decodeSingleDocument parses one document and rejects a second document.
+func decodeSingleDocument(data []byte) (*goyaml.Node, error) {
 	var root goyaml.Node
 	dec := goyaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&root); err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 
-	return UnmarshalNodeWithOptions(&root, v, opts)
+	var extra goyaml.Node
+	if err := dec.Decode(&extra); err == nil {
+		return nil, ErrMultipleDocuments
+	} else if !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
+	return &root, nil
 }
 
 // UnmarshalNodeWithOptions decodes a YAML node with the supplied options.

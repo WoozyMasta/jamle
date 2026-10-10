@@ -2,6 +2,7 @@ package yaml
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,12 +54,8 @@ func TestSpec_MultiDocumentStream(t *testing.T) {
 
 	input := []byte("---\na: first\n---\na: second\n")
 	var got doc
-	if err := Unmarshal(input, &got); err != nil {
-		t.Fatalf("Unmarshal returned error: %v", err)
-	}
-
-	if got.A != "first" {
-		t.Fatalf("expected first document to be decoded, got: %q", got.A)
+	if err := Unmarshal(input, &got); !errors.Is(err, ErrMultipleDocuments) {
+		t.Fatalf("expected multiple-document error, got: %v", err)
 	}
 }
 

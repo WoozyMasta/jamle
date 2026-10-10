@@ -32,12 +32,15 @@ const (
 var (
 	// ErrInvalidFormat reports an unsupported [Format] option.
 	ErrInvalidFormat = errors.New("yaml: invalid format")
+	// ErrMultipleDocuments reports more than one YAML document in single-document input.
+	ErrMultipleDocuments = errors.New("yaml: multiple documents")
+	// ErrJSONTrailingData reports extra non-whitespace bytes after a JSON value.
+	ErrJSONTrailingData = errors.New("json: trailing data after top-level value")
+
 	// ErrStrictYAMLUnsupported is retained for source compatibility.
 	//
 	// Deprecated: strict YAML decoding is supported by [DecodeOptions].
 	ErrStrictYAMLUnsupported = errors.New("yaml: strict mode is supported only for JSON input")
-	// ErrJSONTrailingData reports extra non-whitespace bytes after a JSON value.
-	ErrJSONTrailingData = errors.New("json: trailing data after top-level value")
 )
 
 // ReadOptions configures [ReadFile] behavior.

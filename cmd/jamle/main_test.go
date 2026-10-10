@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -168,12 +169,11 @@ a: ${A:-two}
 `)
 
 		single, err := decodeInput(input, false, jamle.UnmarshalOptions{})
-		if err != nil {
-			t.Fatalf("single decodeInput returned error: %v", err)
+		if !errors.Is(err, jamle.ErrMultipleDocuments) {
+			t.Fatalf("expected single decodeInput to reject multiple documents, got: %v", err)
 		}
-		singleMap, ok := single.(map[string]any)
-		if !ok || singleMap["a"] != "one" {
-			t.Fatalf("single output mismatch: %T %#v", single, single)
+		if single != nil {
+			t.Fatalf("single output should be nil on error: %T %#v", single, single)
 		}
 
 		all, err := decodeInput(input, true, jamle.UnmarshalOptions{})

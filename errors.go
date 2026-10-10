@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	jyaml "github.com/woozymasta/jamle/yaml"
 )
 
 var (
@@ -25,6 +27,8 @@ var (
 	ErrRequiredVariable = errors.New("required")
 	// ErrOutMustBePointerToSlice reports an invalid out parameter for [UnmarshalAll] and [UnmarshalAllWithOptions].
 	ErrOutMustBePointerToSlice = errors.New("out must be a pointer to slice")
+	// ErrMultipleDocuments reports more than one document in single-document input.
+	ErrMultipleDocuments = jyaml.ErrMultipleDocuments
 )
 
 // expansionSourceError adds logical path and YAML source coordinates to an expansion failure.

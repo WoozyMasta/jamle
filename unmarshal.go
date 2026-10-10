@@ -142,6 +142,13 @@ func parseDocument(data []byte) (*goyaml.Node, error) {
 		return nil, err
 	}
 
+	var extra goyaml.Node
+	if err := dec.Decode(&extra); err == nil {
+		return nil, ErrMultipleDocuments
+	} else if !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
 	return &root, nil
 }
 

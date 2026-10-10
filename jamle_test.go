@@ -932,3 +932,30 @@ func TestUnmarshalAllWithOptions_StrictPipeline(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestUnmarshal_SingleDocumentBoundaries(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		Value string `json:"value"`
+	}
+
+	for _, input := range []string{
+		"value: first\n---\nvalue: second\n",
+		"value: first\n---\n",
+	} {
+		var got config
+		if err := Unmarshal([]byte(input), &got); !errors.Is(err, ErrMultipleDocuments) {
+			t.Fatalf("expected ErrMultipleDocuments for %q, got: %v", input, err)
+		}
+	}
+
+	var got config
+	if err := UnmarshalWithOptions(
+		[]byte("value: first\n---\nvalue: second\n"),
+		&got,
+		UnmarshalOptions{Strict: true},
+	); !errors.Is(err, ErrMultipleDocuments) {
+		t.Fatalf("expected options variant to reject multiple documents, got: %v", err)
+	}
+}
