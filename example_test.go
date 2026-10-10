@@ -107,6 +107,41 @@ func ExampleUnmarshalWithOptions_expandKeys() {
 	// Output: value
 }
 
+func ExampleUnmarshalWithOptions_strict() {
+	type Config struct {
+		Host string `json:"host"`
+	}
+
+	var cfg Config
+	err := jamle.UnmarshalWithOptions(
+		[]byte("host: localhost\nextra: true\n"),
+		&cfg,
+		jamle.UnmarshalOptions{Strict: true},
+	)
+	fmt.Println(err != nil)
+	// Output: true
+}
+
+func ExampleUnmarshalWithOptions_defaults() {
+	type Config struct {
+		Host string `json:"host" default:"localhost"`
+		Port int    `json:"port" default:"8080"`
+	}
+
+	var cfg Config
+	err := jamle.UnmarshalWithOptions(
+		[]byte("{}\n"),
+		&cfg,
+		jamle.UnmarshalOptions{Resolver: exampleResolver{}},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("%s:%d\n", cfg.Host, cfg.Port)
+	// Output: localhost:8080
+}
+
 func ExampleUnmarshalAll() {
 	type Config struct {
 		Host string `json:"host"`

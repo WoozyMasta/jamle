@@ -35,6 +35,7 @@ func TestCLIOptions_CoreFlags(t *testing.T) {
 		"--indent", "4",
 		"--max-bytes", "1024",
 		"--max-depth", "15",
+		"--expand-keys",
 		"--all",
 		"--disable-assignment",
 		"--disable-required-errors",
@@ -53,6 +54,9 @@ func TestCLIOptions_CoreFlags(t *testing.T) {
 	}
 	if !opts.All || !opts.DisableAssignment || !opts.DisableRequiredErrors {
 		t.Fatalf("unexpected parsed bool flags: %#v", opts)
+	}
+	if !opts.ExpandKeys {
+		t.Fatalf("expected --expand-keys to be enabled: %#v", opts)
 	}
 	if opts.Args.Input != "in.yaml" || opts.Args.Output != "out.yaml" {
 		t.Fatalf("unexpected positional args: input=%q output=%q", opts.Args.Input, opts.Args.Output)

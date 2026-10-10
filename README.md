@@ -31,8 +31,9 @@ often require dynamic configuration.
 * **Validation:**
   Force errors if required environment variables are missing using
   `${VAR:?error}`
-* **Recursion:**
-  Supports nested variables like `${HOST:=${DEFAULT_HOST}}`
+* **Lazy recursion:**
+  Supports nested variables like `${HOST:=${DEFAULT_HOST}}` without
+  evaluating fallback branches that are not selected.
 * **Unified Parsing:**
   Forget about maintaining separate parsing logic for JSON and YAML
 
@@ -72,6 +73,11 @@ Syntax            | Description
 Note for JSON input:
 placeholders with `:` operators should be used inside JSON strings.
 Unquoted placeholders can break strict JSON syntax.
+
+Nested expressions are evaluated lazily.
+Resolver cycles and expansion-depth exhaustion return errors;
+they do not produce partially unresolved values.
+Use `$${...}` when the literal `${...}` syntax must survive expansion.
 
 ## Usage Example
 
@@ -121,6 +127,8 @@ jamle config.yaml output.yaml
 jamle config.yaml output.yaml --to yaml
 # Disable required-variable errors (${VAR:?msg} behaves like ${VAR})
 jamle config.yaml --disable-required-errors
+# Expand environment expressions in mapping keys (disabled by default)
+jamle config.yaml --expand-keys
 # Set env var and read from file
 export SERVER_PORT=9000
 jamle config.yaml
@@ -157,7 +165,7 @@ func main() {
     data, _ := os.ReadFile("config.yaml")
 
     var cfg Config
-    
+
     // Unmarshal with environment variable substitution
     if err := jamle.Unmarshal(data, &cfg); err != nil {
         log.Fatalf("Failed to parse config: %v", err)
@@ -202,6 +210,74 @@ port: ${PORT:-8080}
 })
 ```
 
+### Strict decoding and defaults
+
+Set `Strict` when decoding into a typed struct to reject unknown fields.
+Map keys and values decoded into open interfaces remain unrestricted.
+
+```go
+type Config struct {
+    Host string `json:"host"`
+}
+
+var cfg Config
+err := jamle.UnmarshalWithOptions(
+    []byte("host: localhost\nextra: true\n"),
+    &cfg,
+    jamle.UnmarshalOptions{Strict: true},
+)
+// err reports the unknown field "extra".
+```
+
+`default` tags fill only fields absent from the source document:
+
+```go
+type Config struct {
+    Host string `json:"host" default:"localhost"`
+    Port int    `json:"port" default:"8080"`
+}
+```
+
+An explicit `0`, `false`, empty string,
+or `null` is source data and is not replaced by a default.
+Use `DisableDefaults: true` to skip default tags for one operation.
+Do not also call `creasty/defaults.Set` on the same value
+unless applying two different defaulting policies is intentional.
+Default tag values are literal;
+expansion syntax inside a `default` tag is not supported.
+
+Mapping keys stay literal by default.
+Enable `ExpandKeys` only when document deliberately uses expressions as keys:
+
+```go
+var cfg map[string]string
+_ = jamle.UnmarshalWithOptions(
+    []byte("${KEY}: ${VALUE:-default}\n"),
+    &cfg,
+    jamle.UnmarshalOptions{
+        Resolver:   mapResolver{"KEY": "name"},
+        ExpandKeys: true,
+    },
+)
+```
+
+The zero-value options keep `${VAR:=default}` assignment enabled.
+With the default resolver, a selected assignment updates
+the current process environment. Use `Assignment: jamle.AssignmentIgnore`
+to keep the fallback without the side effect.
+
+`Unmarshal` and `UnmarshalWithOptions` reject input containing more than one
+YAML document. Use `UnmarshalAll` or `UnmarshalAllWithOptions` for streams:
+
+```go
+var documents []Config
+_ = jamle.UnmarshalAll(data, &documents)
+```
+
+Expansion and ignore-path policies follow the effective consumer path
+of YAML aliases and merge keys.
+This keeps a policy attached to the field where the merged value is consumed.
+
 ### Hooks scripts: keep `${...}` literal
 
 If a YAML field contains shell script with `${...}`,
@@ -240,13 +316,14 @@ query: "${QUERY:-rate(http_requests[$${INTERVAL}])}"
 * **Recursive Resolution:**
   Handles deeply nested variables (`${A:-${B}}`).
 * **Multiple Documents:**
+  `Unmarshal` rejects streams;
   `UnmarshalAll` decodes all documents from YAML streams (`---`).
 * **Custom Variable Sources:**
   `UnmarshalWithOptions` supports non-env resolvers.
 * **Type Safety:**
   Integers and floats in YAML are preserved correctly in the destination struct.
 * **Loop Protection:**
-  Built-in safeguards against infinite recursion loops.
+  Resolver cycles and expansion-depth exhaustion return errors.
 
 ## Additional `yaml` subpackage
 
@@ -310,4 +387,5 @@ Caveats:
   Prefer plain base64 strings without the `!!binary` tag.
 * `YAMLToJSON` may fail for YAML maps with non-JSON-compatible keys
   (for example, complex/map keys).
-* `Unmarshal` decodes only the first document from multi-document YAML streams.
+* `Unmarshal` rejects multi-document YAML streams
+  with `jamle.ErrMultipleDocuments`; use `UnmarshalAll` for streams.

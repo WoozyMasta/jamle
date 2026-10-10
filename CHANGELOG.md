@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning][].
 
 * Root unmarshal APIs support strict unknown-field validation
   after expansion for every YAML document.
+* The `yaml` subpackage supports strict unknown-field validation
+  for typed YAML targets and format-auto decoding.
 * Missing configuration fields can receive source-aware values
   from `default` struct tags.
 * `UnmarshalOptions.DisableDefaults` disables `default` struct tag processing
@@ -29,6 +31,13 @@ and this project adheres to [Semantic Versioning][].
 ### Changed
 
 * Single-document unmarshal APIs now reject additional YAML documents.
+* Nested expansion is lazy, and resolver cycles or depth exhaustion
+  now return errors instead of partial unresolved values.
+* Mapping keys remain literal by default;
+  key expansion requires `UnmarshalOptions.ExpandKeys`.
+* Expansion, strict validation, defaults, and noexpand policies
+  use shared schema metadata and effective paths
+  through YAML aliases and merges.
 
 ## [0.3.0][] - 2026-04-10
 

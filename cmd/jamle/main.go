@@ -32,19 +32,20 @@ var (
 
 type cliOptions struct {
 	Args struct {
-		Input  string `positional-arg-name:"input"  description:"Input file path, or '-' for stdin."`
-		Output string `positional-arg-name:"output" description:"Output file path, or '-' for stdout."`
+		Input  string `description:"Input file path, or '-' for stdin." positional-arg-name:"input"`
+		Output string `description:"Output file path, or '-' for stdout." positional-arg-name:"output"`
 	} `positional-args:"yes"`
 
-	To                    string   `short:"t" long:"to"                      description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json." default:"auto" choice:"auto" choice:"json" choice:"yaml"`
-	IgnoreExpandPaths     []string `short:"I" long:"ignore-expand-path"      description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated." value-name:"PATH"`
-	Indent                int      `short:"i" long:"indent"                  description:"Output indentation. Use 0 for compact output." default:"2" value-name:"N"`
-	MaxBytes              int64    `short:"m" long:"max-bytes"               description:"Maximum input size in bytes." default:"67108864" value-name:"N"`
-	MaxDepth              int      `short:"p" long:"max-depth"               description:"Maximum variable expansion depth." default:"32" value-name:"N"`
-	All                   bool     `short:"a" long:"all"                     description:"Decode all input documents (YAML multi-document stream)."`
-	DisableAssignment     bool     `short:"A" long:"disable-assignment"      description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}."`
-	DisableRequiredErrors bool     `short:"R" long:"disable-required-errors" description:"Disable errors for ${VAR:?error}; behaves like ${VAR}."`
-	Version               bool     `short:"v" long:"version"                 description:"Print version information and exit."`
+	To                    string   `description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json." long:"to" short:"t" default:"auto" choice:"auto" choice:"json" choice:"yaml"`
+	IgnoreExpandPaths     []string `description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated." long:"ignore-expand-path" short:"I" value-name:"PATH"`
+	Indent                int      `description:"Output indentation. Use 0 for compact output." long:"indent" short:"i" default:"2" value-name:"N"`
+	MaxBytes              int64    `description:"Maximum input size in bytes." long:"max-bytes" short:"m" default:"67108864" value-name:"N"`
+	MaxDepth              int      `description:"Maximum variable expansion depth." long:"max-depth" short:"p" default:"32" value-name:"N"`
+	ExpandKeys            bool     `description:"Expand environment expressions in mapping keys." long:"expand-keys"`
+	All                   bool     `description:"Decode all input documents (YAML multi-document stream)." long:"all" short:"a"`
+	DisableAssignment     bool     `description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}." long:"disable-assignment" short:"A"`
+	DisableRequiredErrors bool     `description:"Disable errors for ${VAR:?error}; behaves like ${VAR}." long:"disable-required-errors" short:"R"`
+	Version               bool     `description:"Print version information and exit." long:"version" short:"v"`
 }
 
 func init() {
@@ -72,6 +73,7 @@ Supported placeholders:
 * ${VAR:=default}  same as above, and sets VAR in current process environment.
 * ${VAR:?error}    error if VAR is unset or empty.
 * $${VAR}          escaping; keeps literal ${VAR} without expansion.`
+	parser.LongDescription += "\n\nMapping keys stay literal by default; use --expand-keys to expand them."
 
 	_, err := parser.AddGroup("Options", "", &opts)
 	if err != nil {
@@ -134,6 +136,7 @@ Supported placeholders:
 	unmarshalOptions := jamle.UnmarshalOptions{
 		MaxDepth:          opts.MaxDepth,
 		IgnoreExpandPaths: opts.IgnoreExpandPaths,
+		ExpandKeys:        opts.ExpandKeys,
 		Assignment:        assignment,
 		Required:          required,
 	}

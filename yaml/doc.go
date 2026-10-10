@@ -14,8 +14,9 @@ with json tags must work for both YAML and JSON input.
 and [MarshalWith] add format-aware file I/O and output options.
 [FormatAuto] detects JSON/YAML from the path or content when the format is not forced.
 
-[Unmarshal] decodes the first document only.
-Use the stream API in the parent package when multiple documents must be decoded.
+[Unmarshal] decodes exactly one document
+and returns [ErrMultipleDocuments] when the input contains more than one.
+Use `jamle.UnmarshalAll` in the parent package when multiple documents must be decoded.
 YAML `!!binary` values are not preserved losslessly by [YAMLToJSON];
 use ordinary base64 text when the encoded payload must survive JSON conversion.
 */
