@@ -63,7 +63,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 	if !outValue.IsValid() {
 		return fmt.Errorf("%w, got %T", ErrOutMustBePointerToSlice, out)
 	}
-	if outValue.Kind() != reflect.Ptr || outValue.Elem().Kind() != reflect.Slice {
+	if outValue.Kind() != reflect.Pointer || outValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("%w, got %T", ErrOutMustBePointerToSlice, out)
 	}
 
@@ -105,7 +105,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 
 // decodeDocument decodes one YAML document into a slice element value.
 func decodeDocument(root *goyaml.Node, elemType reflect.Type) (reflect.Value, error) {
-	if elemType.Kind() == reflect.Ptr {
+	if elemType.Kind() == reflect.Pointer {
 		target := reflect.New(elemType.Elem())
 		if err := jyaml.UnmarshalNode(root, target.Interface()); err != nil {
 			return reflect.Value{}, err

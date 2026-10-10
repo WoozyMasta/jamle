@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"github.com/woozymasta/jamle/internal/schema"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -227,27 +228,14 @@ func childTargetForMapKey(jsonTarget *reflect.Value, key string) *reflect.Value 
 func structFieldTargetByJSONKey(structVal reflect.Value, key string) *reflect.Value {
 	_ = structVal
 
-	keyBytes := []byte(key)
-	var matched *field
-	fields := cachedTypeFields(structVal.Type())
-	for i := range fields {
-		ff := &fields[i]
-		if bytes.Equal(ff.nameBytes, keyBytes) {
-			matched = ff
-			break
-		}
-		if matched == nil && ff.equalFold(ff.nameBytes, keyBytes) {
-			matched = ff
-		}
-	}
-
-	if matched == nil {
+	matched, ok := schema.For(structVal.Type()).Lookup(key)
+	if !ok {
 		return nil
 	}
 
 	// Use cached field type directly. This avoids incorrect target selection for
 	// deep embedded index paths and nil embedded pointer traversal pitfalls.
-	fieldVal := reflect.Zero(matched.typ)
+	fieldVal := reflect.Zero(matched.Type)
 	return &fieldVal
 }
 

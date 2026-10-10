@@ -168,7 +168,7 @@ func firstTagValue(tag string) string {
 
 // indirectType dereferences pointers until a concrete type is reached.
 func indirectType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Ptr {
+	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 

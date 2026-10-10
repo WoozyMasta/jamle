@@ -18,7 +18,7 @@ func indirect(v reflect.Value, decodingNull bool) (json.Unmarshaler, encoding.Te
 	// If v is a named type and is addressable,
 	// start with its address, so that if the type has pointer methods,
 	// we find them.
-	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
+	if v.Kind() != reflect.Pointer && v.Type().Name() != "" && v.CanAddr() {
 		v = v.Addr()
 	}
 
@@ -27,17 +27,17 @@ func indirect(v reflect.Value, decodingNull bool) (json.Unmarshaler, encoding.Te
 		// usefully addressable.
 		if v.Kind() == reflect.Interface && !v.IsNil() {
 			e := v.Elem()
-			if e.Kind() == reflect.Ptr && !e.IsNil() && (!decodingNull || e.Elem().Kind() == reflect.Ptr) {
+			if e.Kind() == reflect.Pointer && !e.IsNil() && (!decodingNull || e.Elem().Kind() == reflect.Pointer) {
 				v = e
 				continue
 			}
 		}
 
-		if v.Kind() != reflect.Ptr {
+		if v.Kind() != reflect.Pointer {
 			break
 		}
 
-		if v.Elem().Kind() != reflect.Ptr && decodingNull && v.CanSet() {
+		if v.Elem().Kind() != reflect.Pointer && decodingNull && v.CanSet() {
 			break
 		}
 
@@ -50,10 +50,10 @@ func indirect(v reflect.Value, decodingNull bool) (json.Unmarshaler, encoding.Te
 		}
 
 		if v.Type().NumMethod() > 0 {
-			if u, ok := v.Interface().(json.Unmarshaler); ok {
+			if u, ok := reflect.TypeAssert[json.Unmarshaler](v); ok {
 				return u, nil, reflect.Value{}
 			}
-			if u, ok := v.Interface().(encoding.TextUnmarshaler); ok {
+			if u, ok := reflect.TypeAssert[encoding.TextUnmarshaler](v); ok {
 				return nil, u, reflect.Value{}
 			}
 		}

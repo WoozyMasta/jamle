@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -87,9 +88,14 @@ func TestSpec_BinaryTagLossyInYAMLToJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("YAMLToJSON returned error: %v", err)
 	}
-	// Binary content is currently not preserved through JSON conversion.
-	if string(out) != "{\"a\":\"\\ufffd\\ufffd\\ufffd\"}" {
-		t.Fatalf("unexpected !!binary conversion output: %q", string(out))
+	// Binary content is currently not preserved through JSON conversion. The
+	// JSON encoder may represent replacement runes as UTF-8 or \u escapes.
+	var decoded map[string]string
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Fatalf("YAMLToJSON produced invalid JSON: %v", err)
+	}
+	if decoded["a"] != "\ufffd\ufffd\ufffd" {
+		t.Fatalf("unexpected !!binary conversion value: %q", decoded["a"])
 	}
 }
 
