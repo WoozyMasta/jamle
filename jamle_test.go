@@ -364,7 +364,7 @@ func TestUnmarshalWithOptions(t *testing.T) {
 
 		var got cfg
 		err := UnmarshalWithOptions([]byte("a: ${JAMLE_DISABLE_ASSIGNMENT_TEST:=value}\n"), &got, UnmarshalOptions{
-			DisableAssignment: true,
+			Assignment: AssignmentIgnore,
 		})
 		if err != nil {
 			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
@@ -377,18 +377,13 @@ func TestUnmarshalWithOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("max passes limits nested expansion", func(t *testing.T) {
+	t.Run("max depth rejects nested expansion", func(t *testing.T) {
 		input := []byte(`a: "${A:-${B:-final}}"`)
 
 		var got cfg
-		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
-			MaxPasses: 1,
-		})
-		if err != nil {
-			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
-		}
-		if got.A != "${A:-final}" {
-			t.Fatalf("expected unresolved outer expression, got %q", got.A)
+		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{MaxDepth: 1})
+		if !errors.Is(err, ErrExpansionDepth) {
+			t.Fatalf("expected ErrExpansionDepth, got %v", err)
 		}
 	})
 
@@ -403,7 +398,7 @@ func TestUnmarshalWithOptions(t *testing.T) {
 
 		var got reqCfg
 		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
-			DisableRequiredErrors: true,
+			Required: RequiredIgnore,
 		})
 		if err != nil {
 			t.Fatalf("UnmarshalWithOptions returned error: %v", err)

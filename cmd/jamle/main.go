@@ -32,19 +32,19 @@ var (
 
 type cliOptions struct {
 	Args struct {
-		Input  string `positional-arg-name:"input" description:"Input file path, or '-' for stdin."`
+		Input  string `positional-arg-name:"input"  description:"Input file path, or '-' for stdin."`
 		Output string `positional-arg-name:"output" description:"Output file path, or '-' for stdout."`
 	} `positional-args:"yes"`
 
-	To                    string   `short:"t" long:"to" choice:"auto" choice:"json" choice:"yaml" default:"auto" description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json."`
-	IgnoreExpandPaths     []string `short:"I" long:"ignore-expand-path" value-name:"PATH" description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated."`
-	Indent                int      `short:"i" long:"indent" value-name:"N" default:"2" description:"Output indentation. Use 0 for compact output."`
-	MaxBytes              int64    `short:"m" long:"max-bytes" value-name:"N" default:"67108864" description:"Maximum input size in bytes."`
-	MaxPasses             int      `short:"p" long:"max-passes" value-name:"N" default:"10" description:"Maximum number of variable expansion passes."`
-	All                   bool     `short:"a" long:"all" description:"Decode all input documents (YAML multi-document stream)."`
-	DisableAssignment     bool     `short:"A" long:"disable-assignment" description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}."`
+	To                    string   `short:"t" long:"to"                      description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json." default:"auto" choice:"auto" choice:"json" choice:"yaml"`
+	IgnoreExpandPaths     []string `short:"I" long:"ignore-expand-path"      description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated." value-name:"PATH"`
+	Indent                int      `short:"i" long:"indent"                  description:"Output indentation. Use 0 for compact output." default:"2" value-name:"N"`
+	MaxBytes              int64    `short:"m" long:"max-bytes"               description:"Maximum input size in bytes." default:"67108864" value-name:"N"`
+	MaxDepth              int      `short:"p" long:"max-depth"               description:"Maximum variable expansion depth." default:"32" value-name:"N"`
+	All                   bool     `short:"a" long:"all"                     description:"Decode all input documents (YAML multi-document stream)."`
+	DisableAssignment     bool     `short:"A" long:"disable-assignment"      description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}."`
 	DisableRequiredErrors bool     `short:"R" long:"disable-required-errors" description:"Disable errors for ${VAR:?error}; behaves like ${VAR}."`
-	Version               bool     `short:"v" long:"version" description:"Print version information and exit."`
+	Version               bool     `short:"v" long:"version"                 description:"Print version information and exit."`
 }
 
 func init() {
@@ -101,8 +101,8 @@ Supported placeholders:
 		os.Exit(2)
 	}
 
-	if opts.MaxPasses <= 0 {
-		fmt.Fprintln(os.Stderr, "Error: --max-passes must be greater than zero")
+	if opts.MaxDepth <= 0 {
+		fmt.Fprintln(os.Stderr, "Error: --max-depth must be greater than zero")
 		os.Exit(2)
 	}
 
@@ -122,11 +122,20 @@ Supported placeholders:
 		os.Exit(1)
 	}
 
+	assignment := jamle.AssignmentSet
+	if opts.DisableAssignment {
+		assignment = jamle.AssignmentIgnore
+	}
+	required := jamle.RequiredError
+	if opts.DisableRequiredErrors {
+		required = jamle.RequiredIgnore
+	}
+
 	unmarshalOptions := jamle.UnmarshalOptions{
-		MaxPasses:             opts.MaxPasses,
-		IgnoreExpandPaths:     opts.IgnoreExpandPaths,
-		DisableAssignment:     opts.DisableAssignment,
-		DisableRequiredErrors: opts.DisableRequiredErrors,
+		MaxDepth:          opts.MaxDepth,
+		IgnoreExpandPaths: opts.IgnoreExpandPaths,
+		Assignment:        assignment,
+		Required:          required,
 	}
 
 	decoded, err := decodeInput(input, opts.All, unmarshalOptions)

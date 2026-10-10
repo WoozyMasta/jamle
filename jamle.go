@@ -6,47 +6,80 @@ package jamle
 
 import (
 	"os"
-	"strings"
 )
 
-// placeholders for masking braces in escaped variables.
+// defaultMaxDepth bounds nested syntax and recursive resolver expansion
+// when UnmarshalOptions.MaxDepth is not set.
+const defaultMaxDepth = 32
+
+// AssignmentMode controls side effects of ${VAR:=word} expansions.
+type AssignmentMode uint8
+
 const (
-	maskStart        = "\x00"
-	maskEnd          = "\x01"
-	defaultMaxPasses = 10
+	// AssignmentSet is the default. When the variable is unset or empty,
+	// the expanded word is returned and assigned through the resolver's Setter.
+	AssignmentSet AssignmentMode = iota
+	// AssignmentIgnore returns the expanded word without calling Setter.
+	// This preserves the fallback value while disabling the assignment side effect.
+	AssignmentIgnore
+)
+
+// RequiredMode controls the behavior of ${VAR:?word} when the variable is unset or empty.
+type RequiredMode uint8
+
+const (
+	// RequiredError is the default.
+	// It evaluates word only when needed and returns an error if the variable is unset or empty.
+	RequiredError RequiredMode = iota
+	// RequiredIgnore suppresses the required-variable error
+	// and treats the expression as a plain variable. The fallback word remains lazy.
+	RequiredIgnore
 )
 
 // Resolver provides variable lookup for ${VAR} expansions.
+// A nil Resolver in UnmarshalOptions selects the process environment.
+// Values returned by a resolver may contain expansion syntax and are evaluated recursively,
+// subject to UnmarshalOptions.MaxDepth and cycle detection.
 type Resolver interface {
 	Lookup(name string) (string, bool)
 }
 
-// Setter optionally supports ${VAR:=default} assignment behavior.
+// Setter optionally supports the assignment side effect of ${VAR:=word}.
+// It is used only when AssignmentSet is active and the variable is unset or empty.
+// The default process-environment resolver implements Setter.
 type Setter interface {
 	Set(name, value string) error
 }
 
 // UnmarshalOptions controls variable expansion behavior for Unmarshal APIs.
+// Its zero value uses the process environment, a maximum depth of 32,
+// assignment side effects enabled, and required-variable errors enabled.
 type UnmarshalOptions struct {
-	// Resolver provides values for `${VAR}` expansion.
-	// When nil, process environment resolver is used.
+	// Resolver provides values for ${VAR} expansion.
+	// When nil, the process environment resolver is used.
+	// A custom resolver can also expose the Setter interface to support := assignments.
 	Resolver Resolver `json:"resolver" yaml:"resolver" jsonschema:"-"`
 
-	// IgnoreExpandPaths skips expansion for scalar nodes whose YAML key path
-	// matches one of these glob patterns (dot-separated, `*` for one segment).
+	// IgnoreExpandPaths skips expansion for scalar nodes
+	// whose dot-separated YAML key path matches one of these path patterns.
+	// An asterisk matches one path segment; unmatched paths are expanded normally.
 	IgnoreExpandPaths []string `json:"ignoreExpandPaths,omitempty" yaml:"ignoreExpandPaths,omitempty"`
 
-	// MaxPasses limits nested expansion passes.
-	// When <= 0, default max pass count is used.
-	MaxPasses int `json:"maxPasses,omitempty" yaml:"maxPasses,omitempty" jsonschema:"default=10,minimum=1,maximum=1000,example=20"`
+	// MaxDepth limits both nested ${...} syntax and recursive expansion of values returned by Resolver.
+	// Values <= 0 use the default depth of 32.
+	// Exceeding the limit returns ErrExpansionDepth and does not produce a partial scalar value.
+	MaxDepth int `json:"maxDepth,omitempty" yaml:"maxDepth,omitempty" jsonschema:"default=32,minimum=1,maximum=1000,example=32"`
 
-	// DisableAssignment disables side effects of `${VAR:=default}`.
-	// When true, `${VAR:=default}` behaves like `${VAR:-default}` and does not call Setter.
-	DisableAssignment bool `json:"disableAssignment,omitempty" yaml:"disableAssignment,omitempty" jsonschema:"default=false,example=true"`
+	// Assignment controls the side effect of ${VAR:=word}.
+	// AssignmentSet is the zero-value default and calls Setter when the variable is unset or empty.
+	// If Setter is unavailable, expansion returns ErrAssignmentUnsupported.
+	// AssignmentIgnore evaluates word without changing the resolver.
+	Assignment AssignmentMode `json:"assignment,omitempty" yaml:"assignment,omitempty" jsonschema:"default=0"`
 
-	// DisableRequiredErrors disables errors for `${VAR:?message}`.
-	// When true, `${VAR:?message}` behaves like `${VAR}` and does not return an error.
-	DisableRequiredErrors bool `json:"disableRequiredErrors,omitempty" yaml:"disableRequiredErrors,omitempty" jsonschema:"default=false,example=true"`
+	// Required controls errors from ${VAR:?word}.
+	// RequiredError is the zero-value default and returns an error for an unset or empty variable;
+	// RequiredIgnore suppresses that error while keeping word lazy.
+	Required RequiredMode `json:"required,omitempty" yaml:"required,omitempty" jsonschema:"default=0"`
 }
 
 // ResolveFunc adapts a function to the Resolver interface.
@@ -57,15 +90,17 @@ type envResolver struct{}
 
 // runtimeOptions stores normalized expansion options for one unmarshal call.
 type runtimeOptions struct {
-	resolver        Resolver
+	// resolver supplies values for the current unmarshal operation.
+	resolver Resolver
+	// ignorePathRules contains compiled scalar paths excluded from expansion.
 	ignorePathRules []pathRule
-	maxPasses       int
+	// maxDepth bounds syntax nesting and recursive resolver expansion.
+	maxDepth int
+	// allowAssignment controls whether ${VAR:=word} may call Setter.
 	allowAssignment bool
+	// enforceRequired controls whether ${VAR:?word} reports missing values.
 	enforceRequired bool
 }
-
-// unmaskReplacer restores masked escaped variables back to ${...}.
-var unmaskReplacer = strings.NewReplacer(maskStart, "${", maskEnd, "}")
 
 // Lookup resolves a variable name via the underlying function.
 func (f ResolveFunc) Lookup(name string) (string, bool) {

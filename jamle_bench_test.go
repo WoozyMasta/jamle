@@ -95,7 +95,7 @@ func BenchmarkExpandEnvInScalar(b *testing.B) {
 	for b.Loop() {
 		if _, err := expandEnvInScalar(input, runtimeOptions{
 			resolver:        envResolver{},
-			maxPasses:       defaultMaxPasses,
+			maxDepth:        defaultMaxDepth,
 			allowAssignment: true,
 		}); err != nil {
 			b.Fatal(err)

@@ -16,11 +16,13 @@ import (
 )
 
 /*
-Unmarshal parses the YAML-encoded data and stores the result in the value pointed to by v.
+Unmarshal parses YAML-encoded data and stores the result in the value pointed to by v.
 
-Before parsing, it recursively expands environment variables within the data.
-The function performs up to 10 passes to resolve nested variables (e.g., ${A:=${B}})
-and prevents infinite loops.
+Before decoding, it recursively expands supported environment expressions in scalar values.
+Expansion is evaluated lazily, so nested := and :? words
+that are not selected by their operator are not evaluated.
+Resolver values may contain nested expressions;
+cycles and MaxDepth exhaustion return errors instead of partial output.
 */
 func Unmarshal(data []byte, v any) error {
 	return UnmarshalWithOptions(data, v, UnmarshalOptions{})
@@ -51,8 +53,8 @@ func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 	return jyaml.UnmarshalNode(&root, v)
 }
 
-// UnmarshalAll parses all YAML documents from the input stream and appends
-// decoded values into out, which must be a pointer to a slice.
+// UnmarshalAll parses all YAML documents from the input stream
+// and appends decoded values into out, which must be a pointer to a slice.
 func UnmarshalAll(data []byte, out any) error {
 	return UnmarshalAllWithOptions(data, out, UnmarshalOptions{})
 }
@@ -129,9 +131,9 @@ func resolveOptions(opts UnmarshalOptions, outType reflect.Type) runtimeOptions 
 		resolver = envResolver{}
 	}
 
-	maxPasses := opts.MaxPasses
-	if maxPasses <= 0 {
-		maxPasses = defaultMaxPasses
+	maxDepth := opts.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = defaultMaxDepth
 	}
 
 	ignorePaths := append([]string{}, opts.IgnoreExpandPaths...)
@@ -141,9 +143,9 @@ func resolveOptions(opts UnmarshalOptions, outType reflect.Type) runtimeOptions 
 
 	runtime := runtimeOptions{
 		resolver:        resolver,
-		maxPasses:       maxPasses,
-		allowAssignment: !opts.DisableAssignment,
-		enforceRequired: !opts.DisableRequiredErrors,
+		maxDepth:        maxDepth,
+		allowAssignment: opts.Assignment != AssignmentIgnore,
+		enforceRequired: opts.Required != RequiredIgnore,
 	}
 	if len(ignorePaths) == 0 {
 		return runtime

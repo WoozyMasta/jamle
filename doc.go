@@ -106,10 +106,12 @@ Behavior notes:
   - Unmarshal decodes one document. Use UnmarshalAll for YAML streams.
   - For JSON inputs, placeholders with ":" operators should be quoted
     as JSON strings.
-  - Use UnmarshalOptions.DisableAssignment to make ${VAR:=default}
-    behave like ${VAR:-default} without mutating resolver state.
-  - Use UnmarshalOptions.DisableRequiredErrors to make ${VAR:?error}
+  - Use UnmarshalOptions{Assignment: AssignmentIgnore} to make
+    ${VAR:=default} behave like ${VAR:-default} without mutating resolver state.
+  - Use UnmarshalOptions{Required: RequiredIgnore} to make ${VAR:?error}
     behave like ${VAR}.
+  - MaxDepth limits nested syntax and recursive resolver values; cycles and
+    depth exhaustion return errors instead of partial output.
   - Use UnmarshalOptions.IgnoreExpandPaths or struct tag
     `jamle:"noexpand"` when YAML contains shell `${...}` fragments
     that must stay literal.

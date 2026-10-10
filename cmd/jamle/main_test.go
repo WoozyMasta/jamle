@@ -29,7 +29,7 @@ func TestCLIOptions_CoreFlags(t *testing.T) {
 		"--to", "yaml",
 		"--indent", "4",
 		"--max-bytes", "1024",
-		"--max-passes", "15",
+		"--max-depth", "15",
 		"--all",
 		"--disable-assignment",
 		"--disable-required-errors",
@@ -43,7 +43,7 @@ func TestCLIOptions_CoreFlags(t *testing.T) {
 		t.Fatalf("ParseArgs returned error: %v", err)
 	}
 
-	if opts.To != "yaml" || opts.Indent != 4 || opts.MaxBytes != 1024 || opts.MaxPasses != 15 {
+	if opts.To != "yaml" || opts.Indent != 4 || opts.MaxBytes != 1024 || opts.MaxDepth != 15 {
 		t.Fatalf("unexpected parsed scalar flags: %#v", opts)
 	}
 	if !opts.All || !opts.DisableAssignment || !opts.DisableRequiredErrors {
@@ -188,7 +188,7 @@ a: ${A:-two}
 
 	t.Run("disable required errors", func(t *testing.T) {
 		got, err := decodeInput([]byte("a: ${REQ_MISSING:?boom}\n"), false, jamle.UnmarshalOptions{
-			DisableRequiredErrors: true,
+			Required: jamle.RequiredIgnore,
 		})
 		if err != nil {
 			t.Fatalf("decodeInput returned error: %v", err)
@@ -222,7 +222,7 @@ a: ${A:-two}
 		t.Cleanup(func() { _ = os.Unsetenv(key) })
 
 		got, err := decodeInput([]byte("a: ${JAMLE_CLI_DISABLE_ASSIGN:=x}\n"), false, jamle.UnmarshalOptions{
-			DisableAssignment: true,
+			Assignment: jamle.AssignmentIgnore,
 		})
 		if err != nil {
 			t.Fatalf("decodeInput returned error: %v", err)
