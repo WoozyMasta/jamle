@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning][].
   from `default` struct tags.
 * `UnmarshalOptions.DisableDefaults` disables `default` struct tag processing
   for a decoding operation.
+* Cross-feature conformance and fuzz coverage exercises expansion,
+  strict decoding, defaults, aliases, merges, and schema-aware paths.
 
 ### Changed
 
