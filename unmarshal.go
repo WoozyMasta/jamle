@@ -32,7 +32,7 @@ func Unmarshal(data []byte, v any) error {
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 	containsVars := bytes.Contains(data, []byte("${"))
 	// Direct decoding is safe only when no expansion and no strict validation is requested.
-	if !containsVars && !opts.Strict {
+	if !containsVars && !opts.Strict && (opts.DisableDefaults || !hasDefaults(reflect.TypeOf(v))) {
 		return jyaml.Unmarshal(data, v)
 	}
 
@@ -167,11 +167,19 @@ func processDocument(
 		}
 	}
 
-	return jyaml.UnmarshalNodeWithOptions(
+	if err := jyaml.UnmarshalNodeWithOptions(
 		root,
 		target,
 		jyaml.DecodeOptions{Strict: strict},
-	)
+	); err != nil {
+		return err
+	}
+
+	if !resolvedOpts.disableDefaults && hasDefaults(targetType) {
+		return applyDefaults(root, target)
+	}
+
+	return nil
 }
 
 // resolveOptions normalizes options and applies defaults.
@@ -193,6 +201,7 @@ func resolveOptions(opts UnmarshalOptions) runtimeOptions {
 		maxDepth:        maxDepth,
 		allowAssignment: opts.Assignment != AssignmentIgnore,
 		enforceRequired: opts.Required != RequiredIgnore,
+		disableDefaults: opts.DisableDefaults,
 		expandKeys:      opts.ExpandKeys,
 	}
 	if len(ignorePaths) == 0 {

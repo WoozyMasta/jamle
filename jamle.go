@@ -74,6 +74,9 @@ type UnmarshalOptions struct {
 	// Maps accept arbitrary keys, and values targeting interface{} remain open.
 	Strict bool `json:"strict,omitempty" yaml:"strict,omitempty" jsonschema:"default=false"`
 
+	// DisableDefaults skips processing of default struct tags.
+	DisableDefaults bool `json:"disableDefaults,omitempty" yaml:"disableDefaults,omitempty" jsonschema:"default=false"`
+
 	// Assignment controls the side effect of ${VAR:=word}.
 	// [AssignmentSet] is the zero-value default and calls [Setter] when the variable is unset or empty.
 	// If [Setter] is unavailable, expansion returns [ErrAssignmentUnsupported].
@@ -108,6 +111,8 @@ type runtimeOptions struct {
 	allowAssignment bool
 	// enforceRequired controls whether ${VAR:?word} reports missing values.
 	enforceRequired bool
+	// disableDefaults controls whether default struct tags are processed.
+	disableDefaults bool
 	// expandKeys controls whether scalar mapping keys are expanded.
 	expandKeys bool
 }
