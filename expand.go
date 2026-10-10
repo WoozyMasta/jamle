@@ -7,8 +7,10 @@ package jamle
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
+	"github.com/woozymasta/jamle/internal/schema"
 	goyaml "go.yaml.in/yaml/v3"
 )
 
@@ -60,55 +62,32 @@ type expansionEvaluator struct {
 	opts runtimeOptions
 }
 
-// expandEnvInNode applies scalar environment expansion to a parsed YAML document.
-func expandEnvInNode(root *goyaml.Node, opts runtimeOptions) error {
-	if len(opts.ignorePathRules) == 0 {
-		return expandEnvInNodeFast(root, opts)
-	}
-
-	return expandEnvInNodeWithPath(root, nil, opts)
+// expandEnvInNode applies schema-aware scalar expansion to a parsed YAML document.
+// target is the destination type used to resolve field policies.
+func expandEnvInNode(root *goyaml.Node, target reflect.Type, opts runtimeOptions) error {
+	return expandEnvInNodeWithSchema(root, nil, target, opts)
 }
 
-// expandEnvInNodeFast applies env expansion without tracking YAML key paths.
-func expandEnvInNodeFast(root *goyaml.Node, opts runtimeOptions) error {
-	var resolveErr error
-
-	walkScalarNodes(root, func(n *goyaml.Node) {
-		if resolveErr != nil {
-			return
-		}
-
-		resolveErr = expandScalarNodeValue(n, opts)
-	})
-
-	return resolveErr
-}
-
-// walkScalarNodes walks YAML AST and calls fn for scalar nodes only.
-func walkScalarNodes(n *goyaml.Node, fn func(*goyaml.Node)) {
+// expandEnvInNodeWithSchema traverses YAML nodes with destination schema and effective scalar paths.
+func expandEnvInNodeWithSchema(
+	n *goyaml.Node,
+	path []string,
+	target reflect.Type,
+	opts runtimeOptions,
+) error {
 	if n == nil {
-		return
+		return nil
 	}
 
-	if n.Kind == goyaml.ScalarNode {
-		fn(n)
-	}
-
-	for _, child := range n.Content {
-		walkScalarNodes(child, fn)
-	}
-}
-
-// expandEnvInNodeWithPath expands values while retaining their YAML key paths.
-func expandEnvInNodeWithPath(n *goyaml.Node, path []string, opts runtimeOptions) error {
-	if n == nil {
+	target = dereferenceExpansionType(target)
+	if schema.IsOpaque(target) {
 		return nil
 	}
 
 	switch n.Kind {
 	case goyaml.DocumentNode:
 		for _, child := range n.Content {
-			if err := expandEnvInNodeWithPath(child, path, opts); err != nil {
+			if err := expandEnvInNodeWithSchema(child, path, target, opts); err != nil {
 				return err
 			}
 		}
@@ -116,30 +95,13 @@ func expandEnvInNodeWithPath(n *goyaml.Node, path []string, opts runtimeOptions)
 		return nil
 
 	case goyaml.MappingNode:
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			keyNode := n.Content[i]
-			valueNode := n.Content[i+1]
-			nextPath := appendPathSegment(path, pathSegmentFromKeyNode(keyNode))
-
-			if keyNode.Kind == goyaml.ScalarNode {
-				if err := expandEnvInScalarNode(keyNode, nextPath, opts); err != nil {
-					return err
-				}
-
-				nextPath[len(nextPath)-1] = keyNode.Value
-			}
-
-			if err := expandEnvInNodeWithPath(valueNode, nextPath, opts); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return expandMappingNode(n, path, target, opts)
 
 	case goyaml.SequenceNode:
+		elementType := sequenceElementType(target)
 		for _, child := range n.Content {
 			nextPath := appendPathSegment(path, "*")
-			if err := expandEnvInNodeWithPath(child, nextPath, opts); err != nil {
+			if err := expandEnvInNodeWithSchema(child, nextPath, elementType, opts); err != nil {
 				return err
 			}
 		}
@@ -147,11 +109,15 @@ func expandEnvInNodeWithPath(n *goyaml.Node, path []string, opts runtimeOptions)
 		return nil
 
 	case goyaml.ScalarNode:
-		return expandEnvInScalarNode(n, path, opts)
+		if shouldIgnorePath(path, opts.ignorePathRules) {
+			return nil
+		}
+
+		return expandScalarNodeValue(n, opts)
 
 	default:
 		for _, child := range n.Content {
-			if err := expandEnvInNodeWithPath(child, path, opts); err != nil {
+			if err := expandEnvInNodeWithSchema(child, path, target, opts); err != nil {
 				return err
 			}
 		}
@@ -160,13 +126,79 @@ func expandEnvInNodeWithPath(n *goyaml.Node, path []string, opts runtimeOptions)
 	}
 }
 
-// expandEnvInScalarNode expands one scalar unless its path is ignored.
-func expandEnvInScalarNode(n *goyaml.Node, path []string, opts runtimeOptions) error {
-	if shouldIgnorePath(path, opts.ignorePathRules) {
+// expandMappingNode expands mapping values and resolves struct field metadata.
+func expandMappingNode(
+	n *goyaml.Node,
+	path []string,
+	target reflect.Type,
+	opts runtimeOptions,
+) error {
+	target = dereferenceExpansionType(target)
+	var fields *schema.Info
+	var mapElement reflect.Type
+
+	if target != nil {
+		switch target.Kind() {
+		case reflect.Struct:
+			fields = schema.For(target)
+		case reflect.Map:
+			mapElement = target.Elem()
+		}
+	}
+
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		keyNode := n.Content[i]
+		valueNode := n.Content[i+1]
+
+		if opts.expandKeys && keyNode.Kind == goyaml.ScalarNode {
+			keyPath := appendPathSegment(path, keyNode.Value)
+			if !shouldIgnorePath(keyPath, opts.ignorePathRules) {
+				if err := expandScalarNodeValue(keyNode, opts); err != nil {
+					return err
+				}
+			}
+		}
+
+		nextPath := appendPathSegment(path, pathSegmentFromKeyNode(keyNode))
+		var field schema.Field
+		var fieldFound bool
+		if fields != nil && keyNode.Kind == goyaml.ScalarNode {
+			field, fieldFound = fields.Lookup(keyNode.Value)
+		}
+
+		childType := mapElement
+		if fieldFound {
+			if field.NoExpand {
+				continue
+			}
+			childType = field.Type
+		}
+
+		if err := expandEnvInNodeWithSchema(valueNode, nextPath, childType, opts); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// sequenceElementType returns the destination element type for a sequence.
+func sequenceElementType(target reflect.Type) reflect.Type {
+	target = dereferenceExpansionType(target)
+	if target == nil || (target.Kind() != reflect.Slice && target.Kind() != reflect.Array) {
 		return nil
 	}
 
-	return expandScalarNodeValue(n, opts)
+	return target.Elem()
+}
+
+// dereferenceExpansionType strips pointer layers for schema traversal.
+func dereferenceExpansionType(target reflect.Type) reflect.Type {
+	for target != nil && target.Kind() == reflect.Pointer {
+		target = target.Elem()
+	}
+
+	return target
 }
 
 // expandScalarNodeValue expands a scalar and restores implicit YAML typing.

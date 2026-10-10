@@ -80,6 +80,10 @@ type UnmarshalOptions struct {
 	// RequiredError is the zero-value default and returns an error for an unset or empty variable;
 	// RequiredIgnore suppresses that error while keeping word lazy.
 	Required RequiredMode `json:"required,omitempty" yaml:"required,omitempty" jsonschema:"default=0"`
+
+	// ExpandKeys enables expansion of scalar mapping keys.
+	// The zero value keeps/ keys literal while values continue to expand.
+	ExpandKeys bool `json:"expandKeys,omitempty" yaml:"expandKeys,omitempty" jsonschema:"default=false"`
 }
 
 // ResolveFunc adapts a function to the Resolver interface.
@@ -100,6 +104,8 @@ type runtimeOptions struct {
 	allowAssignment bool
 	// enforceRequired controls whether ${VAR:?word} reports missing values.
 	enforceRequired bool
+	// expandKeys controls whether scalar mapping keys are expanded.
+	expandKeys bool
 }
 
 // Lookup resolves a variable name via the underlying function.

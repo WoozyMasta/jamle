@@ -12,6 +12,7 @@ import (
 
 // pathRule stores a compiled path matching rule.
 type pathRule struct {
+	// segments contains literal path components and one-segment wildcards.
 	segments []string
 }
 

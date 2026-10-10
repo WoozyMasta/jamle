@@ -55,8 +55,12 @@ type Info struct {
 	Type reflect.Type
 	// exact maps canonical JSON names to field indexes.
 	exact map[string]int
+	// yamlExact maps canonical YAML decode keys to field indexes.
+	yamlExact map[string]int
 	// folded maps lowercase names to field indexes for the common lookup path.
 	folded map[string]int
+	// yamlFolded maps lowercase YAML decode keys to field indexes.
+	yamlFolded map[string]int
 	// Fields contains fields selected by JSON embedding rules.
 	Fields []Field
 	// HasDefaults reports whether a selected field has a default tag.
@@ -84,7 +88,7 @@ func For(t reflect.Type) *Info {
 	return actual.(*Info)
 }
 
-// Lookup resolves a JSON field name using exact and case-insensitive rules.
+// Lookup resolves a JSON or YAML decode key using exact and case-insensitive rules.
 func (i *Info) Lookup(name string) (Field, bool) {
 	if i == nil {
 		return Field{}, false
@@ -93,8 +97,14 @@ func (i *Info) Lookup(name string) (Field, bool) {
 	if index, ok := i.exact[name]; ok {
 		return i.Fields[index], true
 	}
+	if index, ok := i.yamlExact[name]; ok {
+		return i.Fields[index], true
+	}
 
 	if index, ok := i.folded[strings.ToLower(name)]; ok {
+		return i.Fields[index], true
+	}
+	if index, ok := i.yamlFolded[strings.ToLower(name)]; ok {
 		return i.Fields[index], true
 	}
 
@@ -102,7 +112,9 @@ func (i *Info) Lookup(name string) (Field, bool) {
 	// EqualFold covers Unicode folds such as Kelvin sign
 	// and long s without complicating the cache key.
 	for index := range i.Fields {
-		if strings.EqualFold(i.Fields[index].JSONName, name) {
+		field := i.Fields[index]
+		if strings.EqualFold(field.JSONName, name) ||
+			strings.EqualFold(field.YAMLDecodeKey, name) {
 			return i.Fields[index], true
 		}
 	}
@@ -127,9 +139,11 @@ func buildInfo(t reflect.Type) *Info {
 	}
 
 	info := &Info{
-		Type:   t,
-		exact:  make(map[string]int),
-		folded: make(map[string]int),
+		Type:       t,
+		exact:      make(map[string]int),
+		yamlExact:  make(map[string]int),
+		folded:     make(map[string]int),
+		yamlFolded: make(map[string]int),
 	}
 	if IsOpaque(t) {
 		info.Opaque = true
@@ -153,7 +167,13 @@ func buildInfo(t reflect.Type) *Info {
 	for index := range info.Fields {
 		field := info.Fields[index]
 		info.exact[field.JSONName] = index
+		if field.YAMLDecodeKey != "-" {
+			info.yamlExact[field.YAMLDecodeKey] = index
+		}
 		info.folded[strings.ToLower(field.JSONName)] = index
+		if field.YAMLDecodeKey != "-" {
+			info.yamlFolded[strings.ToLower(field.YAMLDecodeKey)] = index
+		}
 	}
 
 	return info
@@ -162,24 +182,32 @@ func buildInfo(t reflect.Type) *Info {
 // emptyInfo returns metadata for types without struct fields.
 func emptyInfo(t reflect.Type) *Info {
 	return &Info{
-		Type:   t,
-		exact:  make(map[string]int),
-		folded: make(map[string]int),
+		Type:       t,
+		exact:      make(map[string]int),
+		yamlExact:  make(map[string]int),
+		folded:     make(map[string]int),
+		yamlFolded: make(map[string]int),
 	}
 }
 
 // discoveredField is the intermediate field representation used by discovery.
 type discoveredField struct {
-	name  string
+	// name is the candidate JSON field name.
+	name string
+	// index is the path from the root struct to the candidate field.
 	index []int
-	tag   bool
+	// tag reports whether the candidate has an explicit JSON name.
+	tag bool
 }
 
 // queuedField tracks one anonymous struct type at a breadth-first level.
 type queuedField struct {
+	// fieldType is the embedded struct type being discovered.
 	fieldType reflect.Type
-	index     []int
-	count     int
+	// index is the path to the embedded field.
+	index []int
+	// count is the number of promotion paths reaching fieldType at this level.
+	count int
 }
 
 // discoverFields applies encoding/json's breadth and dominance rules.
@@ -331,7 +359,6 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 	}
 
 	yamlKey := yamlDecodeKey(sf)
-	jamleOptions := tagOptions(sf.Tag.Get("jamle"))
 	defaultValue, hasDefault := sf.Tag.Lookup("default")
 
 	return Field{
@@ -339,12 +366,32 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 		Type:          sf.Type,
 		JSONName:      jsonName,
 		YAMLDecodeKey: yamlKey,
-		NoExpand:      jamleOptions.contains("noexpand"),
+		NoExpand:      hasNoExpandOption(root, discovered.index),
 		Default:       defaultValue,
 		HasDefault:    hasDefault && defaultValue != "-",
 		SkipDefaults:  defaultValue == "-",
 		Opaque:        IsOpaque(sf.Type),
 	}
+}
+
+// hasNoExpandOption reports whether a field or one of its containing fields carries jamle:"noexpand".
+func hasNoExpandOption(root reflect.Type, index []int) bool {
+	current := root
+	for _, fieldIndex := range index {
+		current = dereference(current)
+		if current == nil || current.Kind() != reflect.Struct {
+			return false
+		}
+
+		field := current.Field(fieldIndex)
+		if tagOptions(field.Tag.Get("jamle")).contains("noexpand") {
+			return true
+		}
+
+		current = field.Type
+	}
+
+	return false
 }
 
 // shouldSkip reports whether sf is not part of the JSON field set.

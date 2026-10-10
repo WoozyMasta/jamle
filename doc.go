@@ -115,6 +115,8 @@ Behavior notes:
   - Use UnmarshalOptions.IgnoreExpandPaths or struct tag
     `jamle:"noexpand"` when YAML contains shell `${...}` fragments
     that must stay literal.
+  - Mapping keys are literal by default;
+	  use `UnmarshalOptions{ExpandKeys: true}` to expand scalar keys.
   - For literal `${...}` in expandable fields, use `$${...}` escaping.
   - ${VAR:=default} requires assignment support from resolver.
     With UnmarshalWithOptions/UnmarshalAllWithOptions, this operator returns

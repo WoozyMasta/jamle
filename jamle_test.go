@@ -750,3 +750,102 @@ func TestUnmarshal_JSONInputWithUnquotedPlaceholdersFails(t *testing.T) {
 		t.Fatal("expected parse error for unquoted placeholder in JSON")
 	}
 }
+
+func TestUnmarshalWithOptions_NoExpandTagUsesResolvedSchema(t *testing.T) {
+	type item struct {
+		Script string `json:"script"`
+	}
+	type Embedded struct {
+		EmbeddedScript string `json:"embeddedScript"`
+	}
+	type config struct {
+		Script    string          `json:"script" jamle:"noexpand"`
+		Block     item            `json:"block" jamle:"noexpand"`
+		Items     []item          `json:"items" jamle:"noexpand"`
+		Map       map[string]item `json:"map" jamle:"noexpand"`
+		Embedded  `yaml:",inline" jamle:"noexpand"`
+		Expanded  string `json:"expanded"`
+		YAMLAlias string `json:"value" yaml:"yaml_value" jamle:"noexpand"`
+	}
+
+	input := []byte(`
+script: "${SCRIPT:-script}"
+block:
+  script: "${BLOCK:-block}"
+items:
+  - script: "${ITEM:-item}"
+map:
+  one:
+    script: "${MAP:-map}"
+embeddedScript: "${EMBEDDED:-embedded}"
+expanded: "${EXPANDED:-expanded}"
+yaml_value: "${YAML_VALUE:-yaml}"
+`)
+
+	var got config
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Script != "${SCRIPT:-script}" ||
+		got.Block.Script != "${BLOCK:-block}" ||
+		got.Items[0].Script != "${ITEM:-item}" ||
+		got.Map["one"].Script != "${MAP:-map}" ||
+		got.EmbeddedScript != "${EMBEDDED:-embedded}" ||
+		got.YAMLAlias != "${YAML_VALUE:-yaml}" {
+		t.Fatalf("noexpand subtree was expanded: %#v", got)
+	}
+	if got.Expanded != "expanded" {
+		t.Fatalf("non-noexpand field was not expanded: %q", got.Expanded)
+	}
+}
+
+func TestUnmarshalWithOptions_NoExpandTagMatchesCaseVariants(t *testing.T) {
+	type config struct {
+		Script string `json:"script" jamle:"noexpand"`
+	}
+
+	for _, key := range []string{"script", "Script", "SCRIPT"} {
+		key := key
+		t.Run(key, func(t *testing.T) {
+			var got config
+			input := []byte(key + `: "${SCRIPT:-literal}"` + "\n")
+			if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+				t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+			}
+			if got.Script != "${SCRIPT:-literal}" {
+				t.Fatalf("case variant was expanded: %q", got.Script)
+			}
+		})
+	}
+}
+
+func TestUnmarshalWithOptions_ExpandKeys(t *testing.T) {
+	input := []byte(`${KEY}: "${VALUE:-value}"` + "\n")
+	resolver := ResolveFunc(func(name string) (string, bool) {
+		values := map[string]string{"KEY": "expanded"}
+		value, ok := values[name]
+		return value, ok
+	})
+
+	var literal map[string]string
+	if err := UnmarshalWithOptions(input, &literal, UnmarshalOptions{
+		Resolver: resolver,
+	}); err != nil {
+		t.Fatalf("default key handling returned error: %v", err)
+	}
+	if literal["${KEY}"] != "value" {
+		t.Fatalf("default key expansion mismatch: %#v", literal)
+	}
+
+	var expanded map[string]string
+	if err := UnmarshalWithOptions(input, &expanded, UnmarshalOptions{
+		Resolver:   resolver,
+		ExpandKeys: true,
+	}); err != nil {
+		t.Fatalf("enabled key handling returned error: %v", err)
+	}
+	if expanded["expanded"] != "value" {
+		t.Fatalf("expanded key mismatch: %#v", expanded)
+	}
+}

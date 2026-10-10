@@ -35,7 +35,7 @@ func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 		return jyaml.Unmarshal(data, v)
 	}
 
-	resolvedOpts := resolveOptions(opts, reflect.TypeOf(v))
+	resolvedOpts := resolveOptions(opts)
 
 	// Parse into YAML AST (comments are stored in node fields, not in scalar values)
 	var root goyaml.Node
@@ -45,7 +45,7 @@ func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 		return err
 	}
 
-	if err := expandEnvInNode(&root, resolvedOpts); err != nil {
+	if err := expandEnvInNode(&root, reflect.TypeOf(v), resolvedOpts); err != nil {
 		return err
 	}
 
@@ -71,7 +71,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 
 	sliceValue := outValue.Elem()
 	elemType := sliceValue.Type().Elem()
-	resolvedOpts := resolveOptions(opts, elemType)
+	resolvedOpts := resolveOptions(opts)
 	containsVars := bytes.Contains(data, []byte("${"))
 
 	dec := goyaml.NewDecoder(bytes.NewReader(data))
@@ -88,7 +88,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 		}
 
 		if containsVars {
-			if err := expandEnvInNode(&root, resolvedOpts); err != nil {
+			if err := expandEnvInNode(&root, elemType, resolvedOpts); err != nil {
 				return err
 			}
 		}
@@ -125,7 +125,7 @@ func decodeDocument(root *goyaml.Node, elemType reflect.Type) (reflect.Value, er
 }
 
 // resolveOptions normalizes options and applies defaults.
-func resolveOptions(opts UnmarshalOptions, outType reflect.Type) runtimeOptions {
+func resolveOptions(opts UnmarshalOptions) runtimeOptions {
 	resolver := opts.Resolver
 	if resolver == nil {
 		resolver = envResolver{}
@@ -137,15 +137,13 @@ func resolveOptions(opts UnmarshalOptions, outType reflect.Type) runtimeOptions 
 	}
 
 	ignorePaths := append([]string{}, opts.IgnoreExpandPaths...)
-	if outType != nil {
-		ignorePaths = append(ignorePaths, collectNoExpandPathsCached(outType)...)
-	}
 
 	runtime := runtimeOptions{
 		resolver:        resolver,
 		maxDepth:        maxDepth,
 		allowAssignment: opts.Assignment != AssignmentIgnore,
 		enforceRequired: opts.Required != RequiredIgnore,
+		expandKeys:      opts.ExpandKeys,
 	}
 	if len(ignorePaths) == 0 {
 		return runtime
