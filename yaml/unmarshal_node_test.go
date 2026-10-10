@@ -9,6 +9,20 @@ import (
 	goyaml "go.yaml.in/yaml/v3"
 )
 
+// testNodeCustom records the first key received by a custom decoder.
+type testNodeCustom struct {
+	Key string
+}
+
+// UnmarshalYAML records the node shape without delegating to the standard decoder.
+func (c *testNodeCustom) UnmarshalYAML(node *goyaml.Node) error {
+	if node.Kind == goyaml.MappingNode && len(node.Content) > 0 {
+		c.Key = node.Content[0].Value
+	}
+
+	return nil
+}
+
 func TestUnmarshalNode_JSONTagToYAMLTagRemap(t *testing.T) {
 	t.Parallel()
 
@@ -23,6 +37,151 @@ func TestUnmarshalNode_JSONTagToYAMLTagRemap(t *testing.T) {
 	}
 	if got.Value != "ok" {
 		t.Fatalf("decoded value mismatch: got %q, want %q", got.Value, "ok")
+	}
+}
+
+func TestUnmarshalNode_DoesNotMutateInput(t *testing.T) {
+	t.Parallel()
+
+	type sample struct {
+		Value string `json:"json_name" yaml:"yaml_name"`
+	}
+
+	var root goyaml.Node
+	dec := goyaml.NewDecoder(bytes.NewReader([]byte("json_name: ok\n")))
+	if err := dec.Decode(&root); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+
+	key := root.Content[0].Content[0].Value
+	var got sample
+	if err := UnmarshalNode(&root, &got); err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if got.Value != "ok" {
+		t.Fatalf("decoded value mismatch: got %q", got.Value)
+	}
+	if root.Content[0].Content[0].Value != key {
+		t.Fatalf("UnmarshalNode mutated input key: got %q, want %q",
+			root.Content[0].Content[0].Value, key)
+	}
+}
+
+func TestUnmarshalNode_CanDecodeSameNodeTwice(t *testing.T) {
+	t.Parallel()
+
+	type first struct {
+		Value string `json:"value" yaml:"first"`
+	}
+	type second struct {
+		Value string `json:"value" yaml:"second"`
+	}
+
+	var root goyaml.Node
+	dec := goyaml.NewDecoder(bytes.NewReader([]byte("value: ok\n")))
+	if err := dec.Decode(&root); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+
+	var gotFirst first
+	if err := UnmarshalNode(&root, &gotFirst); err != nil {
+		t.Fatalf("first UnmarshalNode returned error: %v", err)
+	}
+	var gotSecond second
+	if err := UnmarshalNode(&root, &gotSecond); err != nil {
+		t.Fatalf("second UnmarshalNode returned error: %v", err)
+	}
+	if gotFirst.Value != "ok" || gotSecond.Value != "ok" {
+		t.Fatalf("same-node decode mismatch: first=%#v second=%#v",
+			gotFirst, gotSecond)
+	}
+}
+
+func TestUnmarshalNode_PreservesAnchorAliasGraph(t *testing.T) {
+	t.Parallel()
+
+	type child struct {
+		Value string `json:"value" yaml:"yaml_value"`
+	}
+	type sample struct {
+		Defaults child `json:"defaults"`
+		Current  child `json:"current"`
+	}
+
+	var root goyaml.Node
+	dec := goyaml.NewDecoder(bytes.NewReader([]byte(
+		"defaults: &base\n  value: ok\ncurrent: *base\n",
+	)))
+	if err := dec.Decode(&root); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+
+	originalAnchorKey := root.Content[0].Content[1].Content[0].Value
+	var got sample
+	if err := UnmarshalNode(&root, &got); err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if got.Defaults.Value != "ok" || got.Current.Value != "ok" {
+		t.Fatalf("alias decode mismatch: %#v", got)
+	}
+	if root.Content[0].Content[1].Content[0].Value != originalAnchorKey {
+		t.Fatalf("anchor node was mutated: got %q, want %q",
+			root.Content[0].Content[1].Content[0].Value, originalAnchorKey)
+	}
+}
+
+func TestCloneNodeGraph_PreservesMetadataAndAliasIdentity(t *testing.T) {
+	t.Parallel()
+
+	anchor := &goyaml.Node{
+		Kind:        goyaml.MappingNode,
+		Anchor:      "base",
+		HeadComment: "anchor comment",
+		Style:       goyaml.FlowStyle,
+		Content: []*goyaml.Node{
+			{Kind: goyaml.ScalarNode, Value: "key", Line: 3, Column: 2},
+		},
+	}
+	root := &goyaml.Node{
+		Kind: goyaml.DocumentNode,
+		Content: []*goyaml.Node{
+			anchor,
+			{Kind: goyaml.AliasNode, Alias: anchor},
+		},
+	}
+
+	cloned := cloneNodeGraph(root)
+	if cloned == root || cloned.Content[0] == anchor {
+		t.Fatal("node graph was not copied")
+	}
+	if cloned.Content[1].Alias != cloned.Content[0] {
+		t.Fatal("alias identity was not preserved")
+	}
+	if cloned.Content[0].Anchor != anchor.Anchor ||
+		cloned.Content[0].HeadComment != anchor.HeadComment ||
+		cloned.Content[0].Style != anchor.Style {
+		t.Fatal("node metadata was not preserved")
+	}
+	if cloned.Content[0].Content[0].Line != 3 ||
+		cloned.Content[0].Content[0].Column != 2 {
+		t.Fatal("node position was not preserved")
+	}
+}
+
+func TestUnmarshalNode_CustomUnmarshalerSeesOriginalKeys(t *testing.T) {
+	t.Parallel()
+
+	type sample struct {
+		Payload testNodeCustom `json:"payload"`
+	}
+
+	var got sample
+	err := unmarshalNodeFromString("payload:\n  json_name: ok\n", &got)
+	if err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if got.Payload.Key != "json_name" {
+		t.Fatalf("custom unmarshaler saw remapped key %q", got.Payload.Key)
 	}
 }
 

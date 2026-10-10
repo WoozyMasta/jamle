@@ -30,6 +30,11 @@ func UnmarshalNode(root *goyaml.Node, o any) error {
 		return node.Decode(o)
 	}
 
+	node = cloneNodeGraph(root)
+	if node.Kind == goyaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+
 	remapJSONTagKeys(node, target.Elem())
 	return node.Decode(o)
 }

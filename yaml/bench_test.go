@@ -1,6 +1,11 @@
 package yaml
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+
+	goyaml "go.yaml.in/yaml/v3"
+)
 
 type benchNode struct {
 	ID      int               `json:"id"`
@@ -53,6 +58,24 @@ func BenchmarkUnmarshal(b *testing.B) {
 	for b.Loop() {
 		var doc benchDoc
 		if err := Unmarshal(benchYAMLDoc, &doc); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkUnmarshalNode(b *testing.B) {
+	var root goyaml.Node
+	dec := goyaml.NewDecoder(bytes.NewReader(benchYAMLDoc))
+	if err := dec.Decode(&root); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		var doc benchDoc
+		if err := UnmarshalNode(&root, &doc); err != nil {
 			b.Fatal(err)
 		}
 	}
