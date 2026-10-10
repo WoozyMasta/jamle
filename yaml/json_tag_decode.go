@@ -14,6 +14,11 @@ import (
 // UnmarshalNode decodes a YAML node into target using JSON-tag key mapping.
 // The caller-owned node graph is not modified.
 func UnmarshalNode(root *goyaml.Node, o any) error {
+	return UnmarshalNodeWithOptions(root, o, DecodeOptions{})
+}
+
+// unmarshalNode decodes a node after option-specific validation has completed.
+func unmarshalNode(root *goyaml.Node, o any) error {
 	if root == nil {
 		return nil
 	}

@@ -114,7 +114,7 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
-	t.Run("strict yaml unsupported", func(t *testing.T) {
+	t.Run("strict yaml", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		if err := os.WriteFile(path, []byte("a: ok\n"), 0o644); err != nil {
@@ -123,8 +123,11 @@ func TestReadFile(t *testing.T) {
 
 		var got cfg
 		err := ReadFile(path, &got, ReadOptions{Format: FormatYAML, Strict: true})
-		if !errors.Is(err, ErrStrictYAMLUnsupported) {
-			t.Fatalf("expected ErrStrictYAMLUnsupported, got: %v", err)
+		if err != nil {
+			t.Fatalf("ReadFile returned error: %v", err)
+		}
+		if got.A != "ok" {
+			t.Fatalf("value mismatch: got %q, want %q", got.A, "ok")
 		}
 	})
 }

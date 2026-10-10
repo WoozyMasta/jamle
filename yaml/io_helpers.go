@@ -32,7 +32,9 @@ const (
 var (
 	// ErrInvalidFormat reports an unsupported [Format] option.
 	ErrInvalidFormat = errors.New("yaml: invalid format")
-	// ErrStrictYAMLUnsupported reports that [ReadOptions.Strict] is unsupported for YAML input.
+	// ErrStrictYAMLUnsupported is retained for source compatibility.
+	//
+	// Deprecated: strict YAML decoding is supported by [DecodeOptions].
 	ErrStrictYAMLUnsupported = errors.New("yaml: strict mode is supported only for JSON input")
 	// ErrJSONTrailingData reports extra non-whitespace bytes after a JSON value.
 	ErrJSONTrailingData = errors.New("json: trailing data after top-level value")
@@ -183,7 +185,7 @@ func unmarshalByFormat(data []byte, v any, format Format, strict bool) error {
 	switch format {
 	case FormatYAML:
 		if strict {
-			return ErrStrictYAMLUnsupported
+			return UnmarshalWithOptions(data, v, DecodeOptions{Strict: true})
 		}
 		return Unmarshal(data, v)
 
@@ -196,13 +198,12 @@ func unmarshalByFormat(data []byte, v any, format Format, strict bool) error {
 		} else if errors.Is(err, ErrJSONTrailingData) {
 			return err
 		} else if strict {
-			// In strict mode, YAML fallback is disabled.
-			// Keep JSON errors for JSON-looking input and return explicit unsupported error for YAML.
-			if detectFormatByContent(data) == FormatAuto {
+			// Preserve JSON decoder errors for valid JSON while allowing flow-style YAML.
+			if json.Valid(bytes.TrimSpace(data)) {
 				return err
 			}
 
-			return ErrStrictYAMLUnsupported
+			return UnmarshalWithOptions(data, v, DecodeOptions{Strict: true})
 		}
 
 		return Unmarshal(data, v)

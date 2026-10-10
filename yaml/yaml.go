@@ -35,16 +35,7 @@ func Marshal(o any) ([]byte, error) {
 // Unmarshal decodes YAML into an object while honoring JSON struct tags.
 // It delegates node decoding to [UnmarshalNode].
 func Unmarshal(y []byte, o any) error {
-	var root yaml.Node
-	dec := yaml.NewDecoder(bytes.NewReader(y))
-	if err := dec.Decode(&root); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		return err
-	}
-
-	return UnmarshalNode(&root, o)
+	return UnmarshalWithOptions(y, o, DecodeOptions{})
 }
 
 // JSONToYAML converts JSON to YAML while preserving JSON number types.
