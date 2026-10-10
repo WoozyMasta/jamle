@@ -70,6 +70,10 @@ type UnmarshalOptions struct {
 	// Exceeding the limit returns [ErrExpansionDepth] and does not produce a partial scalar value.
 	MaxDepth int `json:"maxDepth,omitempty" yaml:"maxDepth,omitempty" jsonschema:"default=32,minimum=1,maximum=1000,example=32"`
 
+	// Strict rejects unknown mapping keys when the destination contains a struct.
+	// Maps accept arbitrary keys, and values targeting interface{} remain open.
+	Strict bool `json:"strict,omitempty" yaml:"strict,omitempty" jsonschema:"default=false"`
+
 	// Assignment controls the side effect of ${VAR:=word}.
 	// [AssignmentSet] is the zero-value default and calls [Setter] when the variable is unset or empty.
 	// If [Setter] is unavailable, expansion returns [ErrAssignmentUnsupported].

@@ -849,3 +849,86 @@ func TestUnmarshalWithOptions_ExpandKeys(t *testing.T) {
 		t.Fatalf("expanded key mismatch: %#v", expanded)
 	}
 }
+
+func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		Known string `json:"known"`
+	}
+
+	t.Run("without expansion markers", func(t *testing.T) {
+		var got config
+		err := UnmarshalWithOptions([]byte("unknown: value\n"), &got, UnmarshalOptions{Strict: true})
+		if err == nil || !strings.Contains(err.Error(), `unknown field "unknown"`) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("with expansion markers", func(t *testing.T) {
+		var got config
+		err := UnmarshalWithOptions(
+			[]byte("known: ${VALUE}\n"),
+			&got,
+			UnmarshalOptions{
+				Resolver: mapResolver{values: map[string]string{"VALUE": "expanded"}},
+				Strict:   true,
+			},
+		)
+		if err != nil {
+			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+		if got.Known != "expanded" {
+			t.Fatalf("decoded value mismatch: %#v", got)
+		}
+	})
+
+	t.Run("expanded key is validated", func(t *testing.T) {
+		var got config
+		err := UnmarshalWithOptions(
+			[]byte("${KEY}: value\n"),
+			&got,
+			UnmarshalOptions{
+				Resolver:   mapResolver{values: map[string]string{"KEY": "unknown"}},
+				ExpandKeys: true,
+				Strict:     true,
+			},
+		)
+		if err == nil || !strings.Contains(err.Error(), `unknown field "unknown"`) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("non-strict keeps unknown keys ignored", func(t *testing.T) {
+		var got config
+		if err := UnmarshalWithOptions([]byte("unknown: value\n"), &got, UnmarshalOptions{}); err != nil {
+			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+	})
+
+	t.Run("map any remains open", func(t *testing.T) {
+		var got map[string]any
+		if err := UnmarshalWithOptions(
+			[]byte("arbitrary:\n  nested: value\n"),
+			&got,
+			UnmarshalOptions{Strict: true},
+		); err != nil {
+			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+	})
+}
+
+func TestUnmarshalAllWithOptions_StrictPipeline(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		Known string `json:"known"`
+	}
+
+	input := []byte("---\nknown: ok\n---\nunknown: bad\n")
+	var got []config
+	err := UnmarshalAllWithOptions(input, &got, UnmarshalOptions{Strict: true})
+	if err == nil || !strings.Contains(err.Error(), `unknown field "unknown"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

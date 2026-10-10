@@ -30,27 +30,19 @@ func Unmarshal(data []byte, v any) error {
 
 // UnmarshalWithOptions parses YAML and expands ${...} using [UnmarshalOptions].
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
-	// Fast path: if there are no variable markers, decode directly.
-	if !bytes.Contains(data, []byte("${")) {
+	containsVars := bytes.Contains(data, []byte("${"))
+	// Direct decoding is safe only when no expansion and no strict validation is requested.
+	if !containsVars && !opts.Strict {
 		return jyaml.Unmarshal(data, v)
 	}
 
 	resolvedOpts := resolveOptions(opts)
-
-	// Parse into YAML AST (comments are stored in node fields, not in scalar values)
-	var root goyaml.Node
-	dec := goyaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(false)
-	if err := dec.Decode(&root); err != nil {
+	root, err := parseDocument(data)
+	if err != nil {
 		return err
 	}
 
-	if err := expandEnvInNode(&root, reflect.TypeOf(v), resolvedOpts); err != nil {
-		return err
-	}
-
-	// Decode from transformed AST directly to avoid YAML re-encode/re-decode.
-	return jyaml.UnmarshalNode(&root, v)
+	return processDocument(root, v, reflect.TypeOf(v), resolvedOpts, containsVars, opts.Strict)
 }
 
 // UnmarshalAll parses all YAML documents from the input stream and appends
@@ -88,13 +80,7 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 			return err
 		}
 
-		if containsVars {
-			if err := expandEnvInNode(&root, elemType, resolvedOpts); err != nil {
-				return err
-			}
-		}
-
-		elem, err := decodeDocument(&root, elemType)
+		elem, err := decodeDocument(&root, elemType, resolvedOpts, containsVars, opts.Strict)
 		if err != nil {
 			return err
 		}
@@ -107,10 +93,23 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 }
 
 // decodeDocument decodes one YAML document into a slice element value.
-func decodeDocument(root *goyaml.Node, elemType reflect.Type) (reflect.Value, error) {
+func decodeDocument(
+	root *goyaml.Node,
+	elemType reflect.Type,
+	resolvedOpts runtimeOptions,
+	containsVars bool,
+	strict bool,
+) (reflect.Value, error) {
 	if elemType.Kind() == reflect.Pointer {
 		target := reflect.New(elemType.Elem())
-		if err := jyaml.UnmarshalNode(root, target.Interface()); err != nil {
+		if err := processDocument(
+			root,
+			target.Interface(),
+			elemType,
+			resolvedOpts,
+			containsVars,
+			strict,
+		); err != nil {
 			return reflect.Value{}, err
 		}
 
@@ -118,11 +117,54 @@ func decodeDocument(root *goyaml.Node, elemType reflect.Type) (reflect.Value, er
 	}
 
 	target := reflect.New(elemType)
-	if err := jyaml.UnmarshalNode(root, target.Interface()); err != nil {
+	if err := processDocument(
+		root,
+		target.Interface(),
+		elemType,
+		resolvedOpts,
+		containsVars,
+		strict,
+	); err != nil {
 		return reflect.Value{}, err
 	}
 
 	return target.Elem(), nil
+}
+
+// parseDocument parses the first YAML document from data into a node graph.
+func parseDocument(data []byte) (*goyaml.Node, error) {
+	var root goyaml.Node
+	dec := goyaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(false)
+	if err := dec.Decode(&root); errors.Is(err, io.EOF) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	return &root, nil
+}
+
+// processDocument applies expansion and then decodes one parsed YAML document.
+func processDocument(
+	root *goyaml.Node,
+	target any,
+	targetType reflect.Type,
+	resolvedOpts runtimeOptions,
+	containsVars bool,
+	strict bool,
+) error {
+	if containsVars && root != nil {
+		if err := expandEnvInNode(root, targetType, resolvedOpts); err != nil {
+			return err
+		}
+	}
+
+	return jyaml.UnmarshalNodeWithOptions(
+		root,
+		target,
+		jyaml.DecodeOptions{Strict: strict},
+	)
 }
 
 // resolveOptions normalizes options and applies defaults.
