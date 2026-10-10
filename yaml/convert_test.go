@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/jamle
+
 package yaml
 
 import "testing"
@@ -118,8 +122,9 @@ func runConversionCases(t *testing.T, direction conversionDirection, cases []con
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			forwardOut, err := forward([]byte(tc.input))
 			if err != nil {
 				t.Fatalf("%s failed for %q: %v", forwardMsg, tc.input, err)

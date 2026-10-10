@@ -31,6 +31,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	}
 
 	t.Run("unknown field reports path and position", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("name: ok\nchild:\n  extra: no\n"), &got, DecodeOptions{Strict: true})
 		if err == nil {
@@ -44,6 +46,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	})
 
 	t.Run("flow yaml", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("{name: ok, child: {name: nested}}\n"), &got, DecodeOptions{Strict: true})
 		if err != nil {
@@ -55,6 +59,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	})
 
 	t.Run("embedded fields and json aliases", func(t *testing.T) {
+		t.Parallel()
+
 		type aliasConfig struct {
 			Embedded    `yaml:",inline"`
 			DisplayName string `json:"display_name" yaml:"friendly_name"`
@@ -71,6 +77,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	})
 
 	t.Run("map values are validated", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("items:\n  first:\n    extra: no\n"), &got, DecodeOptions{Strict: true})
 		if err == nil || !strings.Contains(err.Error(), "$.items.first.extra") {
@@ -79,6 +87,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	})
 
 	t.Run("map any values stay open", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("any:\n  arbitrary:\n    extra: ok\n"), &got, DecodeOptions{Strict: true})
 		if err != nil {
@@ -87,6 +97,8 @@ func TestUnmarshalWithOptions_StrictYAML(t *testing.T) {
 	})
 
 	t.Run("custom unmarshaler is opaque", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("payload:\n  arbitrary: ok\n"), &got, DecodeOptions{Strict: true})
 		if err != nil {

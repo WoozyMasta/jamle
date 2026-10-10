@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/jamle
+
 package yaml
 
 import (
@@ -292,9 +296,10 @@ func TestConvertToJSONableObject_StringCoercion(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			target := reflect.New(reflect.TypeOf("")).Elem()
+			t.Parallel()
+
+			target := reflect.New(reflect.TypeFor[string]()).Elem()
 			got, err := convertToJSONableObject(tc.in, &target)
 			if err != nil {
 				t.Fatalf("convertToJSONableObject returned error: %v", err)
@@ -314,7 +319,7 @@ func TestConvertToJSONableObject_StructAndSliceTargets(t *testing.T) {
 		B int    `json:"b"`
 	}
 
-	structTarget := reflect.New(reflect.TypeOf(sample{})).Elem()
+	structTarget := reflect.New(reflect.TypeFor[sample]()).Elem()
 	gotStruct, err := convertToJSONableObject(map[string]any{"a": 1, "b": 2}, &structTarget)
 	if err != nil {
 		t.Fatalf("convertToJSONableObject(struct) returned error: %v", err)
@@ -324,7 +329,7 @@ func TestConvertToJSONableObject_StructAndSliceTargets(t *testing.T) {
 		t.Fatalf("struct-target conversion mismatch:\n got: %#v\nwant: %#v", gotStruct, wantStruct)
 	}
 
-	sliceTarget := reflect.Zero(reflect.TypeOf([]string{}))
+	sliceTarget := reflect.Zero(reflect.TypeFor[[]string]())
 	gotSlice, err := convertToJSONableObject([]any{1, true}, &sliceTarget)
 	if err != nil {
 		t.Fatalf("convertToJSONableObject(slice) returned error: %v", err)
@@ -400,8 +405,9 @@ func TestConvertToJSONableObject_EmbeddedStructTargets(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			target := reflect.New(reflect.TypeOf(tc.target)).Elem()
 
 			got, err := convertToJSONableObject(tc.in, &target)

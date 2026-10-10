@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 WoozyMasta
-// Source: github.com/WoozyMasta/jamle
+// Source: github.com/woozymasta/jamle
 
 package schema
 
@@ -70,7 +70,7 @@ func TestForJSONFieldRules(t *testing.T) {
 		schemaRight
 	}
 
-	info := For(reflect.TypeOf(config{}))
+	info := For(reflect.TypeFor[config]())
 	if _, ok := info.Lookup("ignored"); ok {
 		t.Fatal("json '-' field was included")
 	}
@@ -95,7 +95,7 @@ func TestForTaggedFieldWins(t *testing.T) {
 		schemaTaggedRight
 	}
 
-	field, ok := For(reflect.TypeOf(config{})).Lookup("value")
+	field, ok := For(reflect.TypeFor[config]()).Lookup("value")
 	if !ok {
 		t.Fatal("tagged promoted field was not discovered")
 	}
@@ -112,7 +112,7 @@ func TestForMetadataAndOpaqueBoundaries(t *testing.T) {
 		Text  schemaOpaqueText `json:"text"`
 	}
 
-	info := For(reflect.TypeOf(&config{}))
+	info := For(reflect.TypeFor[*config]())
 	if !info.HasDefaults || !info.HasNoExpand {
 		t.Fatal("subtree metadata flags were not populated")
 	}
@@ -137,8 +137,8 @@ func TestForMetadataAndOpaqueBoundaries(t *testing.T) {
 			t.Fatalf("field %q is not marked opaque: %#v", name, field)
 		}
 	}
-	if !IsOpaque(reflect.TypeOf(schemaOpaqueYAML{})) ||
-		!IsOpaque(reflect.TypeOf(schemaOpaqueText(""))) {
+	if !IsOpaque(reflect.TypeFor[schemaOpaqueYAML]()) ||
+		!IsOpaque(reflect.TypeFor[schemaOpaqueText]()) {
 		t.Fatal("decode interface classification failed")
 	}
 }
@@ -148,7 +148,7 @@ func TestForCachesImmutableMetadata(t *testing.T) {
 		Value string `json:"value"`
 	}
 
-	typ := reflect.TypeOf(config{})
+	typ := reflect.TypeFor[config]()
 	if For(typ) != For(reflect.PointerTo(typ)) {
 		t.Fatal("pointer and value lookups did not share cached metadata")
 	}

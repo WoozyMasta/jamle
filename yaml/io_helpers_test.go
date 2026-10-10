@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/jamle
+
 package yaml
 
 import (
@@ -16,6 +20,8 @@ func TestUnmarshalAuto(t *testing.T) {
 	}
 
 	t.Run("yaml by content", func(t *testing.T) {
+		t.Parallel()
+
 		var got cfg
 		if err := UnmarshalAuto([]byte("a: x\n"), &got, AutoOptions{}); err != nil {
 			t.Fatalf("UnmarshalAuto returned error: %v", err)
@@ -26,6 +32,8 @@ func TestUnmarshalAuto(t *testing.T) {
 	})
 
 	t.Run("json by content", func(t *testing.T) {
+		t.Parallel()
+
 		var got cfg
 		if err := UnmarshalAuto([]byte(`{"a":"x"}`), &got, AutoOptions{}); err != nil {
 			t.Fatalf("UnmarshalAuto returned error: %v", err)
@@ -36,6 +44,8 @@ func TestUnmarshalAuto(t *testing.T) {
 	})
 
 	t.Run("yaml flow style by content", func(t *testing.T) {
+		t.Parallel()
+
 		var got cfg
 		if err := UnmarshalAuto([]byte("{a: x}\n"), &got, AutoOptions{}); err != nil {
 			t.Fatalf("UnmarshalAuto returned error: %v", err)
@@ -46,6 +56,8 @@ func TestUnmarshalAuto(t *testing.T) {
 	})
 
 	t.Run("json with trailing garbage fails", func(t *testing.T) {
+		t.Parallel()
+
 		var got cfg
 		err := UnmarshalAuto([]byte(`{"a":"x"} trailing`), &got, AutoOptions{})
 		if err == nil {
@@ -67,7 +79,7 @@ func TestReadFile(t *testing.T) {
 	t.Run("format by extension", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
-		if err := os.WriteFile(path, []byte(`{"a":"ok"}`), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(`{"a":"ok"}`), 0o600); err != nil {
 			t.Fatalf("WriteFile setup failed: %v", err)
 		}
 
@@ -81,9 +93,11 @@ func TestReadFile(t *testing.T) {
 	})
 
 	t.Run("strict json", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
-		if err := os.WriteFile(path, []byte(`{"unknown":"x"}`), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(`{"unknown":"x"}`), 0o600); err != nil {
 			t.Fatalf("WriteFile setup failed: %v", err)
 		}
 
@@ -98,9 +112,11 @@ func TestReadFile(t *testing.T) {
 	})
 
 	t.Run("strict auto keeps json error", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.auto")
-		if err := os.WriteFile(path, []byte(`{"unknown":"x"}`), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(`{"unknown":"x"}`), 0o600); err != nil {
 			t.Fatalf("WriteFile setup failed: %v", err)
 		}
 
@@ -115,9 +131,11 @@ func TestReadFile(t *testing.T) {
 	})
 
 	t.Run("strict yaml", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(path, []byte("a: ok\n"), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte("a: ok\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile setup failed: %v", err)
 		}
 
@@ -142,6 +160,8 @@ func TestWriteFileAndMarshalWith(t *testing.T) {
 	input := cfg{A: "ok"}
 
 	t.Run("json with indent", func(t *testing.T) {
+		t.Parallel()
+
 		out, err := MarshalWith(input, WriteOptions{Format: FormatJSON, Indent: 2})
 		if err != nil {
 			t.Fatalf("MarshalWith returned error: %v", err)
@@ -152,6 +172,8 @@ func TestWriteFileAndMarshalWith(t *testing.T) {
 	})
 
 	t.Run("yaml write file", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 
@@ -169,9 +191,11 @@ func TestWriteFileAndMarshalWith(t *testing.T) {
 	})
 
 	t.Run("overwrite existing file", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
-		if err := os.WriteFile(path, []byte(`{"old":true}`), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(`{"old":true}`), 0o600); err != nil {
 			t.Fatalf("setup write failed: %v", err)
 		}
 

@@ -164,7 +164,7 @@ func FuzzUnmarshalWithOptionsSchemaTraversal(f *testing.F) {
 		f.Add(seed)
 	}
 
-	f.Fuzz(func(t *testing.T, input string) {
+	f.Fuzz(func(_ *testing.T, input string) {
 		var got conformanceConfig
 		_ = UnmarshalWithOptions([]byte(input), &got, UnmarshalOptions{
 			Resolver:          mapResolver{values: map[string]string{"KEY": "name"}},

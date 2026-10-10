@@ -6,8 +6,8 @@ package jamle
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
+	"strconv"
 	"testing"
 
 	goyaml "go.yaml.in/yaml/v3"
@@ -92,7 +92,6 @@ func TestExpandEnvInScalar_LazyBranches(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -229,7 +228,7 @@ func FuzzExpand(f *testing.F) {
 		f.Add(seed)
 	}
 
-	f.Fuzz(func(t *testing.T, input string) {
+	f.Fuzz(func(_ *testing.T, input string) {
 		_, _ = expandEnvInScalar(input, runtimeOptions{
 			resolver:        expansionTestResolver{values: map[string]string{}},
 			maxDepth:        defaultMaxDepth,
@@ -426,7 +425,7 @@ func assertExpansionSourceContext(t *testing.T, err error, path string, line int
 	}
 
 	pattern := regexp.MustCompile(regexp.QuoteMeta(path) + `:` +
-		fmt.Sprintf(`%d`, line) + `:[0-9]+:`)
+		strconv.Itoa(line) + `:[0-9]+:`)
 	if !pattern.MatchString(err.Error()) {
 		t.Fatalf("error lacks source context %q: %v", path, err)
 	}

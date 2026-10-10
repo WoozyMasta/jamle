@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
+// Source: github.com/woozymasta/jamle
+
 package jamle
 
 import (
@@ -13,7 +17,7 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 		name        string
 		yaml        string
 		env         map[string]string
-		expected    map[string]interface{}
+		expected    map[string]any
 		expectError bool
 	}{
 		// Basic
@@ -21,35 +25,35 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 			name:     "basic substitution",
 			yaml:     `value: "${TEST_VAR}"`,
 			env:      map[string]string{"TEST_VAR": "val"},
-			expected: map[string]interface{}{"value": "val"},
+			expected: map[string]any{"value": "val"},
 		},
 		{
 			name:     "basic missing (empty)",
 			yaml:     `value: "${TEST_MISSING}"`,
-			expected: map[string]interface{}{"value": ""},
+			expected: map[string]any{"value": ""},
 		},
 		{
 			name:     "multiple vars in one line",
 			yaml:     `url: "${PROTO:-http}://${HOST:-localhost}:${PORT:-80}"`,
 			env:      map[string]string{"HOST": "example.com"},
-			expected: map[string]interface{}{"url": "http://example.com:80"},
+			expected: map[string]any{"url": "http://example.com:80"},
 		},
 
 		// Defaults
 		{
 			name:     "bash default (:-)",
 			yaml:     `value: "${TEST_VAR:-default}"`,
-			expected: map[string]interface{}{"value": "default"},
+			expected: map[string]any{"value": "default"},
 		},
 		{
 			name:     "colon without operator does not apply default",
 			yaml:     `value: "${TEST_VAR:default}"`,
-			expected: map[string]interface{}{"value": ""},
+			expected: map[string]any{"value": ""},
 		},
 		{
 			name:     "default with special chars and colons",
 			yaml:     `dsn: "${DSN:-user:pass@tcp(localhost:3306)/db}"`,
-			expected: map[string]interface{}{"dsn": "user:pass@tcp(localhost:3306)/db"},
+			expected: map[string]any{"dsn": "user:pass@tcp(localhost:3306)/db"},
 		},
 
 		// Required (?)
@@ -57,7 +61,7 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 			name:     "required variable success",
 			yaml:     `value: "${TEST_REQ:?}"`,
 			env:      map[string]string{"TEST_REQ": "ok"},
-			expected: map[string]interface{}{"value": "ok"},
+			expected: map[string]any{"value": "ok"},
 		},
 		{
 			name:        "required variable fail",
@@ -74,13 +78,13 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 		{
 			name:     "nested default value",
 			yaml:     `value: "${PRIMARY:-${SECONDARY:-final}}"`,
-			expected: map[string]interface{}{"value": "final"},
+			expected: map[string]any{"value": "final"},
 		},
 		{
 			name:     "nested default value resolved",
 			yaml:     `value: "${PRIMARY:-${SECONDARY:-final}}"`,
 			env:      map[string]string{"SECONDARY": "sec"},
-			expected: map[string]interface{}{"value": "sec"},
+			expected: map[string]any{"value": "sec"},
 		},
 
 		// Escaping
@@ -88,17 +92,17 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 			name:     "escaped variable",
 			yaml:     `value: "$${TEST_VAR}"`,
 			env:      map[string]string{"TEST_VAR": "should_be_ignored"},
-			expected: map[string]interface{}{"value": "${TEST_VAR}"},
+			expected: map[string]any{"value": "${TEST_VAR}"},
 		},
 		{
 			name:     "escaped variable inside default value",
 			yaml:     `query: "${QUERY:-rate(http_requests[$${INTERVAL}])}"`,
-			expected: map[string]interface{}{"query": "rate(http_requests[${INTERVAL}])"},
+			expected: map[string]any{"query": "rate(http_requests[${INTERVAL}])"},
 		},
 		{
 			name:     "escaped variable keeps nested braces literal",
 			yaml:     `value: "$${A:-${B}}"`,
-			expected: map[string]interface{}{"value": "${A:-${B}}"},
+			expected: map[string]any{"value": "${A:-${B}}"},
 		},
 	}
 
@@ -108,7 +112,7 @@ func TestUnmarshal_SubstitutionLogic(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-			var result map[string]interface{}
+			var result map[string]any
 			err := Unmarshal([]byte(tt.yaml), &result)
 
 			if tt.expectError {
@@ -209,7 +213,7 @@ string_num: "${STR_VAL:-123}"
 func TestUnmarshal_InfiniteLoopProtection(t *testing.T) {
 	yamlStr := `val: "${RECURSIVE_VAR:-${RECURSIVE_VAR}}"`
 
-	var res map[string]interface{}
+	var res map[string]any
 
 	done := make(chan bool)
 	go func() {
@@ -226,7 +230,7 @@ func TestUnmarshal_InfiniteLoopProtection(t *testing.T) {
 }
 
 func TestUnmarshal_DoesNotExpandInComments(t *testing.T) {
-	os.Unsetenv("COMMENT_REQ")
+	_ = os.Unsetenv("COMMENT_REQ")
 
 	yamlStr := `
 # ${COMMENT_REQ:?must_not_fail}
@@ -235,7 +239,7 @@ nested:
   key: 1 # ${COMMENT_REQ:?must_not_fail_nested}
 `
 
-	var res map[string]interface{}
+	var res map[string]any
 	if err := Unmarshal([]byte(yamlStr), &res); err != nil {
 		t.Fatalf("Unexpected error (comments must not be expanded): %v", err)
 	}
@@ -576,7 +580,6 @@ func TestUnmarshalWithOptions_NegativeTable(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			err := UnmarshalWithOptions(tt.input, tt.target, tt.opts)
 			if err == nil {
@@ -663,7 +666,6 @@ func TestUnmarshalAllWithOptions_NegativeTable(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			err := UnmarshalAllWithOptions(tt.input, tt.out, tt.opts)
 			if err == nil {
@@ -806,7 +808,6 @@ func TestUnmarshalWithOptions_NoExpandTagMatchesCaseVariants(t *testing.T) {
 	}
 
 	for _, key := range []string{"script", "Script", "SCRIPT"} {
-		key := key
 		t.Run(key, func(t *testing.T) {
 			var got config
 			input := []byte(key + `: "${SCRIPT:-literal}"` + "\n")
@@ -858,6 +859,8 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 	}
 
 	t.Run("without expansion markers", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions([]byte("unknown: value\n"), &got, UnmarshalOptions{Strict: true})
 		if err == nil || !strings.Contains(err.Error(), `unknown field "unknown"`) {
@@ -866,6 +869,8 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 	})
 
 	t.Run("with expansion markers", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions(
 			[]byte("known: ${VALUE}\n"),
@@ -884,6 +889,8 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 	})
 
 	t.Run("expanded key is validated", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		err := UnmarshalWithOptions(
 			[]byte("${KEY}: value\n"),
@@ -900,6 +907,8 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 	})
 
 	t.Run("non-strict keeps unknown keys ignored", func(t *testing.T) {
+		t.Parallel()
+
 		var got config
 		if err := UnmarshalWithOptions([]byte("unknown: value\n"), &got, UnmarshalOptions{}); err != nil {
 			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
@@ -907,6 +916,8 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 	})
 
 	t.Run("map any remains open", func(t *testing.T) {
+		t.Parallel()
+
 		var got map[string]any
 		if err := UnmarshalWithOptions(
 			[]byte("arbitrary:\n  nested: value\n"),
