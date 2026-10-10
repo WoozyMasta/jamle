@@ -7,6 +7,8 @@ package jamle
 import (
 	"errors"
 	"testing"
+
+	goyaml "go.yaml.in/yaml/v3"
 )
 
 // expansionTestResolver provides deterministic values for scalar tests.
@@ -217,4 +219,145 @@ func FuzzExpand(f *testing.F) {
 			enforceRequired: true,
 		})
 	})
+}
+
+func TestUnmarshalWithOptions_AliasConsumersUseTheirOwnPolicy(t *testing.T) {
+	type source struct {
+		Value string `json:"value"`
+	}
+	type consumer struct {
+		Value string `json:"value" jamle:"noexpand"`
+	}
+
+	input := []byte(`
+base: &value
+  value: "${X:-expanded}"
+a: *value
+b: *value
+`)
+
+	type document struct {
+		Base source   `json:"base"`
+		A    consumer `json:"a"`
+		B    source   `json:"b"`
+	}
+
+	var got document
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Base.Value != "expanded" {
+		t.Fatalf("anchor definition mismatch: got %q", got.Base.Value)
+	}
+	if got.A.Value != "${X:-expanded}" {
+		t.Fatalf("noexpand alias consumer mismatch: got %q", got.A.Value)
+	}
+	if got.B.Value != "expanded" {
+		t.Fatalf("expand alias consumer mismatch: got %q", got.B.Value)
+	}
+}
+
+func TestUnmarshalWithOptions_MergeUsesConsumerSchemaAndPath(t *testing.T) {
+	type config struct {
+		Name   string `json:"name"`
+		Secret string `json:"secret" jamle:"noexpand"`
+	}
+
+	input := []byte(`
+defaults: &defaults
+  name: "${NAME:-default}"
+  secret: "${SECRET:-literal}"
+app:
+  <<: *defaults
+`)
+
+	type document struct {
+		Defaults config `json:"defaults"`
+		App      config `json:"app"`
+	}
+
+	var got document
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.Defaults.Name != "default" || got.App.Name != "default" {
+		t.Fatalf("merged names mismatch: %#v", got)
+	}
+	if got.Defaults.Secret != "${SECRET:-literal}" ||
+		got.App.Secret != "${SECRET:-literal}" {
+		t.Fatalf("noexpand merge mismatch: %#v", got)
+	}
+}
+
+func TestUnmarshalWithOptions_NestedAndMultipleMerges(t *testing.T) {
+	type config struct {
+		Name  string `json:"name"`
+		Outer string `json:"outer"`
+		Local string `json:"local"`
+	}
+
+	input := []byte(`
+outer: &outer
+  outer: "${OUTER:-outer}"
+first: &first
+  name: "${FIRST:-first}"
+  local: "${FIRST_LOCAL:-first-local}"
+second: &second
+  name: "${SECOND:-second}"
+app:
+  <<: [*first, *second]
+  local: "${LOCAL:-local}"
+nested:
+  <<: *outer
+`)
+
+	type document struct {
+		First  config `json:"first"`
+		Second config `json:"second"`
+		App    config `json:"app"`
+		Nested config `json:"nested"`
+	}
+
+	var got document
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.App.Name != "first" {
+		t.Fatalf("first merge source must take precedence: %#v", got.App)
+	}
+	if got.App.Local != "local" {
+		t.Fatalf("explicit local field mismatch: %#v", got.App)
+	}
+	if got.Nested.Outer != "outer" {
+		t.Fatalf("nested merge mismatch: %#v", got.Nested)
+	}
+}
+
+func TestExpandEnvInNode_AliasCycleReturnsError(t *testing.T) {
+	alias := &goyaml.Node{Kind: goyaml.AliasNode}
+	alias.Alias = alias
+	root := &goyaml.Node{Kind: goyaml.DocumentNode, Content: []*goyaml.Node{alias}}
+
+	err := expandEnvInNode(root, nil, runtimeOptions{
+		resolver:        expansionTestResolver{values: map[string]string{}},
+		maxDepth:        defaultMaxDepth,
+		allowAssignment: true,
+		enforceRequired: true,
+	})
+	if err == nil {
+		t.Fatal("expected alias cycle error")
+	}
+}
+
+func TestUnmarshalWithOptions_AliasCycleReturnsError(t *testing.T) {
+	input := []byte("value: &value [*value, \"${X}\"]\n")
+
+	var got map[string]any
+	err := UnmarshalWithOptions(input, &got, UnmarshalOptions{})
+	if !errors.Is(err, errAliasCycle) {
+		t.Fatalf("expected YAML alias cycle error, got %v", err)
+	}
 }

@@ -63,77 +63,120 @@ type expansionEvaluator struct {
 	opts runtimeOptions
 }
 
+// errAliasCycle reports recursive traversal of a YAML alias graph.
+var errAliasCycle = errors.New("yaml alias cycle")
+
 // expandEnvInNode applies schema-aware scalar expansion to a parsed YAML document.
 // target is the destination type used to resolve field policies.
 func expandEnvInNode(root *goyaml.Node, target reflect.Type, opts runtimeOptions) error {
-	return expandEnvInNodeWithSchema(root, nil, target, opts)
+	transformer := logicalNodeTransformer{
+		opts:   opts,
+		active: make(map[*goyaml.Node]bool),
+	}
+
+	transformed, err := transformer.transform(root, nil, target, true)
+	if err != nil {
+		return err
+	}
+
+	*root = *transformed
+	return nil
 }
 
-// expandEnvInNodeWithSchema traverses YAML nodes with destination schema and effective scalar paths.
-func expandEnvInNodeWithSchema(
+// logicalNodeTransformer applies path-sensitive transforms
+// without mutating shared YAML nodes referenced by aliases.
+type logicalNodeTransformer struct {
+	// active tracks the current node path and rejects recursive aliases.
+	active map[*goyaml.Node]bool
+	// opts contains the normalized resolver and expansion policies.
+	opts runtimeOptions
+}
+
+// transform copies one logical YAML value for its consumer path.
+func (t *logicalNodeTransformer) transform(
 	n *goyaml.Node,
 	path []string,
 	target reflect.Type,
-	opts runtimeOptions,
-) error {
+	expand bool,
+) (*goyaml.Node, error) {
 	if n == nil {
-		return nil
+		return nil, nil
 	}
+	if t.active[n] {
+		return nil, fmt.Errorf("%w at path %q", errAliasCycle, strings.Join(path, "."))
+	}
+
+	t.active[n] = true
+	defer delete(t.active, n)
 
 	target = dereferenceExpansionType(target)
 	if schema.IsOpaque(target) {
-		return nil
+		return cloneOpaqueGraph(n)
 	}
 
-	switch n.Kind {
-	case goyaml.DocumentNode:
-		for _, child := range n.Content {
-			if err := expandEnvInNodeWithSchema(child, path, target, opts); err != nil {
-				return err
-			}
+	if n.Kind == goyaml.AliasNode {
+		if n.Alias == nil {
+			return copyLogicalNode(n), nil
 		}
 
-		return nil
+		return t.transform(n.Alias, path, target, expand)
+	}
+
+	cloned := copyLogicalNode(n)
+	switch n.Kind {
+	case goyaml.DocumentNode:
+		cloned.Content = make([]*goyaml.Node, len(n.Content))
+		for index, child := range n.Content {
+			transformed, err := t.transform(child, path, target, expand)
+			if err != nil {
+				return nil, err
+			}
+			cloned.Content[index] = transformed
+		}
 
 	case goyaml.MappingNode:
-		return expandMappingNode(n, path, target, opts)
+		return t.transformMapping(cloned, path, target, expand)
 
 	case goyaml.SequenceNode:
 		elementType := sequenceElementType(target)
-		for _, child := range n.Content {
+		cloned.Content = make([]*goyaml.Node, len(n.Content))
+		for index, child := range n.Content {
 			nextPath := appendPathSegment(path, "*")
-			if err := expandEnvInNodeWithSchema(child, nextPath, elementType, opts); err != nil {
-				return err
+			transformed, err := t.transform(child, nextPath, elementType, expand)
+			if err != nil {
+				return nil, err
 			}
+			cloned.Content[index] = transformed
 		}
-
-		return nil
 
 	case goyaml.ScalarNode:
-		if shouldIgnorePath(path, opts.ignorePathRules) {
-			return nil
-		}
-
-		return expandScalarNodeValue(n, opts)
-
-	default:
-		for _, child := range n.Content {
-			if err := expandEnvInNodeWithSchema(child, path, target, opts); err != nil {
-				return err
+		if expand && !shouldIgnorePath(path, t.opts.ignorePathRules) {
+			if err := expandScalarNodeValue(cloned, t.opts); err != nil {
+				return nil, err
 			}
 		}
 
-		return nil
+	default:
+		cloned.Content = make([]*goyaml.Node, len(n.Content))
+		for index, child := range n.Content {
+			transformed, err := t.transform(child, path, target, expand)
+			if err != nil {
+				return nil, err
+			}
+			cloned.Content[index] = transformed
+		}
 	}
+
+	return cloned, nil
 }
 
-// expandMappingNode expands mapping values and resolves struct field metadata.
-func expandMappingNode(
-	n *goyaml.Node,
+// transformMapping copies mapping values using their logical consumer paths.
+func (t *logicalNodeTransformer) transformMapping(
+	cloned *goyaml.Node,
 	path []string,
 	target reflect.Type,
-	opts runtimeOptions,
-) error {
+	expand bool,
+) (*goyaml.Node, error) {
 	target = dereferenceExpansionType(target)
 	var fields *schema.Info
 	var mapElement reflect.Type
@@ -147,15 +190,32 @@ func expandMappingNode(
 		}
 	}
 
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		keyNode := n.Content[i]
-		valueNode := n.Content[i+1]
+	content := cloned.Content
+	cloned.Content = make([]*goyaml.Node, len(content))
+	for i := 0; i+1 < len(content); i += 2 {
+		keyNode := content[i]
+		if keyNode == nil {
+			return nil, fmt.Errorf("nil YAML mapping key at path %q", strings.Join(path, "."))
+		}
 
-		if opts.expandKeys && keyNode.Kind == goyaml.ScalarNode {
+		if keyNode.Kind == goyaml.AliasNode && keyNode.Alias != nil {
+			transformed, err := t.transform(keyNode, path, nil, false)
+			if err != nil {
+				return nil, err
+			}
+
+			keyNode = transformed
+		}
+
+		cloned.Content[i] = keyNode
+		valueNode := content[i+1]
+
+		if expand && t.opts.expandKeys && keyNode.Kind == goyaml.ScalarNode &&
+			!isMergeKey(keyNode) {
 			keyPath := appendPathSegment(path, keyNode.Value)
-			if !shouldIgnorePath(keyPath, opts.ignorePathRules) {
-				if err := expandScalarNodeValue(keyNode, opts); err != nil {
-					return err
+			if !shouldIgnorePath(keyPath, t.opts.ignorePathRules) {
+				if err := expandScalarNodeValue(keyNode, t.opts); err != nil {
+					return nil, err
 				}
 			}
 		}
@@ -167,20 +227,127 @@ func expandMappingNode(
 			field, fieldFound = fields.Lookup(keyNode.Value)
 		}
 
+		if isMergeKey(keyNode) {
+			transformed, err := t.transformMergeValue(valueNode, path, target, expand)
+			if err != nil {
+				return nil, err
+			}
+
+			cloned.Content[i+1] = transformed
+			continue
+		}
+
 		childType := mapElement
 		if fieldFound {
-			if field.NoExpand {
-				continue
-			}
 			childType = field.Type
 		}
 
-		if err := expandEnvInNodeWithSchema(valueNode, nextPath, childType, opts); err != nil {
-			return err
+		childExpand := expand && (!fieldFound || !field.NoExpand)
+		transformed, err := t.transform(valueNode, nextPath, childType, childExpand)
+		if err != nil {
+			return nil, err
 		}
+
+		cloned.Content[i+1] = transformed
 	}
 
-	return nil
+	return cloned, nil
+}
+
+// transformMergeValue traverses merge sources at the destination mapping path.
+func (t *logicalNodeTransformer) transformMergeValue(
+	n *goyaml.Node,
+	path []string,
+	target reflect.Type,
+	expand bool,
+) (*goyaml.Node, error) {
+	if n == nil {
+		return nil, nil
+	}
+	if n.Kind != goyaml.SequenceNode {
+		return t.transform(n, path, target, expand)
+	}
+
+	cloned := copyLogicalNode(n)
+	cloned.Content = make([]*goyaml.Node, len(n.Content))
+	for index, child := range n.Content {
+		transformed, err := t.transformMergeValue(child, path, target, expand)
+		if err != nil {
+			return nil, err
+		}
+		cloned.Content[index] = transformed
+	}
+
+	return cloned, nil
+}
+
+// copyLogicalNode copies node metadata without retaining shared graph edges.
+func copyLogicalNode(n *goyaml.Node) *goyaml.Node {
+	nodeCopy := *n
+	nodeCopy.Anchor = ""
+	nodeCopy.Content = append([]*goyaml.Node(nil), n.Content...)
+	nodeCopy.Alias = nil
+	return &nodeCopy
+}
+
+// cloneOpaqueGraph copies a decoder-owned subtree while preserving aliases.
+func cloneOpaqueGraph(root *goyaml.Node) (*goyaml.Node, error) {
+	clones := make(map[*goyaml.Node]*goyaml.Node)
+	active := make(map[*goyaml.Node]bool)
+
+	var clone func(*goyaml.Node) (*goyaml.Node, error)
+	clone = func(n *goyaml.Node) (*goyaml.Node, error) {
+		if n == nil {
+			return nil, nil
+		}
+		if active[n] {
+			return nil, errAliasCycle
+		}
+
+		if existing, ok := clones[n]; ok {
+			return existing, nil
+		}
+
+		copied := *n
+		copied.Content = nil
+		copied.Alias = nil
+		clones[n] = &copied
+		active[n] = true
+
+		if len(n.Content) > 0 {
+			copied.Content = make([]*goyaml.Node, len(n.Content))
+			for index, child := range n.Content {
+				childCopy, err := clone(child)
+				if err != nil {
+					return nil, err
+				}
+
+				copied.Content[index] = childCopy
+			}
+		}
+
+		aliasCopy, err := clone(n.Alias)
+		if err != nil {
+			return nil, err
+		}
+
+		copied.Alias = aliasCopy
+		delete(active, n)
+
+		return &copied, nil
+	}
+
+	return clone(root)
+}
+
+// isMergeKey reports whether n is a YAML merge mapping key.
+func isMergeKey(n *goyaml.Node) bool {
+	if n == nil || n.Kind != goyaml.ScalarNode || n.Value != "<<" {
+		return false
+	}
+
+	return n.Tag == "" || n.Tag == "!" || n.Tag == "!!merge" ||
+		n.Tag == "tag:yaml.org,2002:merge"
 }
 
 // sequenceElementType returns the destination element type for a sequence.
