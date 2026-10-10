@@ -11,6 +11,7 @@ import (
 	"io"
 	"maps"
 	"reflect"
+	"sync"
 
 	"github.com/woozymasta/jamle/internal/schema"
 	jyaml "github.com/woozymasta/jamle/yaml"
@@ -20,11 +21,34 @@ import (
 var (
 	// errDefaultAliasCycle reports a recursive alias graph during default traversal.
 	errDefaultAliasCycle = errors.New("yaml: alias cycle while applying defaults")
+	// defaultsPresenceCache stores the immutable recursive-defaults result by type.
+	defaultsPresenceCache sync.Map
+	// defaultNodeCache stores immutable parsed YAML values by raw default tag.
+	defaultNodeCache sync.Map
 )
+
+// defaultNodeResult stores a parsed default value or its stable parse error.
+type defaultNodeResult struct {
+	// node is the immutable YAML value parsed from a default tag.
+	node *goyaml.Node
+	// err is the parse error returned for an invalid default tag.
+	err error
+}
 
 // hasDefaults reports whether t or any reachable schema field needs defaults.
 func hasDefaults(t reflect.Type) bool {
-	return hasDefaultsSeen(t, make(map[reflect.Type]bool))
+	t = dereferenceExpansionType(t)
+	if t == nil {
+		return false
+	}
+	if cached, ok := defaultsPresenceCache.Load(t); ok {
+		return cached.(bool)
+	}
+
+	result := hasDefaultsSeen(t, make(map[reflect.Type]bool))
+	cached, _ := defaultsPresenceCache.LoadOrStore(t, result)
+
+	return cached.(bool)
 }
 
 // hasDefaultsSeen walks shared schema metadata while preventing recursive types from looping.
@@ -368,28 +392,46 @@ func defaultFieldValue(root reflect.Value, index []int, allocate bool) (reflect.
 
 // parseDefaultNode parses one default tag as a YAML value.
 func parseDefaultNode(raw string) (*goyaml.Node, error) {
+	if cached, ok := defaultNodeCache.Load(raw); ok {
+		result := cached.(defaultNodeResult)
+		return result.node, result.err
+	}
+
+	result := parseDefaultNodeUncached(raw)
+	cached, _ := defaultNodeCache.LoadOrStore(raw, result)
+	result = cached.(defaultNodeResult)
+
+	return result.node, result.err
+}
+
+// parseDefaultNodeUncached parses one default tag without using the cache.
+func parseDefaultNodeUncached(raw string) defaultNodeResult {
 	if raw == "" {
-		return &goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
+		return defaultNodeResult{
+			node: &goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!null", Value: "null"},
+		}
 	}
 
 	var root goyaml.Node
 	dec := goyaml.NewDecoder(bytes.NewReader([]byte(raw)))
 	if err := dec.Decode(&root); err != nil {
 		if errors.Is(err, io.EOF) {
-			return &goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
+			return defaultNodeResult{
+				node: &goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!null", Value: "null"},
+			}
 		}
 
-		return nil, err
+		return defaultNodeResult{err: err}
 	}
 
 	var extra goyaml.Node
 	if err := dec.Decode(&extra); err == nil {
-		return nil, jyaml.ErrMultipleDocuments
+		return defaultNodeResult{err: jyaml.ErrMultipleDocuments}
 	} else if !errors.Is(err, io.EOF) {
-		return nil, err
+		return defaultNodeResult{err: err}
 	}
 
-	return &root, nil
+	return defaultNodeResult{node: &root}
 }
 
 // decodeDefaultValue decodes one parsed default into a destination field.
