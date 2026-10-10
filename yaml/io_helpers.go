@@ -30,36 +30,41 @@ const (
 )
 
 var (
-	// ErrInvalidFormat reports unsupported input/output format option.
+	// ErrInvalidFormat reports an unsupported [Format] option.
 	ErrInvalidFormat = errors.New("yaml: invalid format")
-	// ErrStrictYAMLUnsupported reports strict mode limitation for YAML input.
-	ErrStrictYAMLUnsupported = errors.New(
-		"yaml: strict mode is supported only for JSON input",
-	)
-	// ErrJSONTrailingData reports extra non-whitespace bytes after JSON value.
+	// ErrStrictYAMLUnsupported reports that [ReadOptions.Strict] is unsupported for YAML input.
+	ErrStrictYAMLUnsupported = errors.New("yaml: strict mode is supported only for JSON input")
+	// ErrJSONTrailingData reports extra non-whitespace bytes after a JSON value.
 	ErrJSONTrailingData = errors.New("json: trailing data after top-level value")
 )
 
-// ReadOptions configures ReadFile behavior.
+// ReadOptions configures [ReadFile] behavior.
 type ReadOptions struct {
+	// Format selects YAML, JSON, or automatic format detection.
 	Format Format
+	// Strict enables format-specific unknown-field validation.
 	Strict bool
 }
 
-// AutoOptions configures UnmarshalAuto behavior.
+// AutoOptions configures [UnmarshalAuto] behavior.
 type AutoOptions struct {
+	// Format selects YAML, JSON, or automatic format detection.
 	Format Format
+	// Strict enables format-specific unknown-field validation.
 	Strict bool
 }
 
-// WriteOptions configures MarshalWith/WriteFile behavior.
+// WriteOptions configures [MarshalWith] and [WriteFile] behavior.
 type WriteOptions struct {
+	// Format selects the output format.
 	Format Format
+	// Indent sets the number of spaces used for formatted output.
 	Indent int
-	Perm   os.FileMode
+	// Perm sets the file mode used by [WriteFile].
+	Perm os.FileMode
 }
 
-// ReadFile reads a file and decodes its content as YAML or JSON.
+// ReadFile reads a file and decodes its content as YAML or JSON according to [ReadOptions.Format].
 func ReadFile(path string, v any, opts ReadOptions) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -74,7 +79,7 @@ func ReadFile(path string, v any, opts ReadOptions) error {
 	return unmarshalByFormat(data, v, format, opts.Strict)
 }
 
-// WriteFile marshals an object and writes it to a file.
+// WriteFile marshals an object and writes it to a file according to [WriteOptions].
 func WriteFile(path string, v any, opts WriteOptions) error {
 	data, err := MarshalWith(v, opts)
 	if err != nil {
@@ -89,7 +94,7 @@ func WriteFile(path string, v any, opts WriteOptions) error {
 	return writeFileAtomic(path, data, perm)
 }
 
-// UnmarshalAuto decodes JSON or YAML based on options/path/content heuristics.
+// UnmarshalAuto decodes JSON or YAML based on [AutoOptions] and path/content heuristics.
 func UnmarshalAuto(data []byte, v any, opts AutoOptions) error {
 	format, err := resolveFormat("", data, opts.Format, false)
 	if err != nil {
@@ -99,7 +104,7 @@ func UnmarshalAuto(data []byte, v any, opts AutoOptions) error {
 	return unmarshalByFormat(data, v, format, opts.Strict)
 }
 
-// MarshalWith marshals an object using selected format and formatting options.
+// MarshalWith marshals an object using the selected [WriteOptions.Format] and formatting options.
 func MarshalWith(v any, opts WriteOptions) ([]byte, error) {
 	format := opts.Format
 	if format == "" || format == FormatAuto {
@@ -109,8 +114,10 @@ func MarshalWith(v any, opts WriteOptions) ([]byte, error) {
 	switch format {
 	case FormatYAML:
 		return marshalYAMLWithIndent(v, opts.Indent)
+
 	case FormatJSON:
 		return marshalJSONWithIndent(v, opts.Indent)
+
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrInvalidFormat, format)
 	}
@@ -125,6 +132,7 @@ func resolveFormat(path string, data []byte, format Format, usePath bool) (Forma
 	switch format {
 	case FormatYAML, FormatJSON:
 		return format, nil
+
 	case FormatAuto:
 		if usePath {
 			if byPath, ok := detectFormatByPath(path); ok {
@@ -132,6 +140,7 @@ func resolveFormat(path string, data []byte, format Format, usePath bool) (Forma
 			}
 		}
 		return detectFormatByContent(data), nil
+
 	default:
 		return "", fmt.Errorf("%w: %q", ErrInvalidFormat, format)
 	}
@@ -143,8 +152,10 @@ func detectFormatByPath(path string) (Format, bool) {
 	switch ext {
 	case ".yaml", ".yml":
 		return FormatYAML, true
+
 	case ".json":
 		return FormatJSON, true
+
 	default:
 		return "", false
 	}
@@ -174,18 +185,19 @@ func unmarshalByFormat(data []byte, v any, format Format, strict bool) error {
 		if strict {
 			return ErrStrictYAMLUnsupported
 		}
-
 		return Unmarshal(data, v)
+
 	case FormatJSON:
 		return unmarshalJSON(data, v, strict)
+
 	case FormatAuto:
 		if err := unmarshalJSON(data, v, strict); err == nil {
 			return nil
 		} else if errors.Is(err, ErrJSONTrailingData) {
 			return err
 		} else if strict {
-			// In strict mode, YAML fallback is disabled. Keep JSON errors for
-			// JSON-looking input and return explicit unsupported error for YAML.
+			// In strict mode, YAML fallback is disabled.
+			// Keep JSON errors for JSON-looking input and return explicit unsupported error for YAML.
 			if detectFormatByContent(data) == FormatAuto {
 				return err
 			}
@@ -194,6 +206,7 @@ func unmarshalByFormat(data []byte, v any, format Format, strict bool) error {
 		}
 
 		return Unmarshal(data, v)
+
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidFormat, format)
 	}

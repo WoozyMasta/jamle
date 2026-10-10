@@ -16,7 +16,7 @@ import (
 
 // envLookup stores one resolver lookup result for a scalar expansion.
 type envLookup struct {
-	// value is the value returned by Resolver.Lookup.
+	// value is the value returned by [Resolver.Lookup].
 	value string
 	// exists distinguishes an unset variable from a set variable with an empty value.
 	exists bool
@@ -32,7 +32,7 @@ type templateSegment struct {
 
 // parsedExpression stores one supported parameter expansion.
 type parsedExpression struct {
-	// name is the variable passed to Resolver.Lookup and, for :=, Setter.Set.
+	// name is passed to [Resolver.Lookup] and, for :=, [Setter.Set].
 	name string
 	// word contains the lazy fallback or required-error message.
 	word []templateSegment
@@ -50,7 +50,8 @@ type expansionParser struct {
 
 // expansionEvaluator resolves parsed expressions with lazy branch evaluation.
 type expansionEvaluator struct {
-	// setter is available only when assignment side effects are enabled and the resolver implements Setter.
+	// setter is available only when assignment side effects are enabled
+	// and the resolver implements [Setter].
 	setter Setter
 	// envCache avoids repeated lookups within one scalar expansion.
 	envCache map[string]envLookup

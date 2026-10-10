@@ -12,6 +12,7 @@ import (
 )
 
 // UnmarshalNode decodes a YAML node into target using JSON-tag key mapping.
+// The caller-owned node graph is not modified.
 func UnmarshalNode(root *goyaml.Node, o any) error {
 	if root == nil {
 		return nil
@@ -83,11 +84,13 @@ func remapMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 	switch target.Kind() {
 	case reflect.Struct:
 		remapStructMappingNodeKeys(n, target)
+
 	case reflect.Map:
 		elem := derefType(target.Elem())
 		if elem == nil {
 			return
 		}
+
 		for i := 1; i < len(n.Content); i += 2 {
 			remapJSONTagKeys(n.Content[i], elem)
 		}

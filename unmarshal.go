@@ -22,13 +22,13 @@ Before decoding, it recursively expands supported environment expressions in sca
 Expansion is evaluated lazily, so nested := and :? words
 that are not selected by their operator are not evaluated.
 Resolver values may contain nested expressions;
-cycles and MaxDepth exhaustion return errors instead of partial output.
+cycles and [UnmarshalOptions.MaxDepth] exhaustion return errors instead of partial output.
 */
 func Unmarshal(data []byte, v any) error {
 	return UnmarshalWithOptions(data, v, UnmarshalOptions{})
 }
 
-// UnmarshalWithOptions parses YAML and expands ${...} using configured options.
+// UnmarshalWithOptions parses YAML and expands ${...} using [UnmarshalOptions].
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 	// Fast path: if there are no variable markers, decode directly.
 	if !bytes.Contains(data, []byte("${")) {
@@ -53,13 +53,14 @@ func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 	return jyaml.UnmarshalNode(&root, v)
 }
 
-// UnmarshalAll parses all YAML documents from the input stream
-// and appends decoded values into out, which must be a pointer to a slice.
+// UnmarshalAll parses all YAML documents from the input stream and appends
+// decoded values into out, which must be a pointer to a slice.
+// Use [Unmarshal] when the input must contain one document.
 func UnmarshalAll(data []byte, out any) error {
 	return UnmarshalAllWithOptions(data, out, UnmarshalOptions{})
 }
 
-// UnmarshalAllWithOptions parses all YAML documents using configured options.
+// UnmarshalAllWithOptions parses all YAML documents using [UnmarshalOptions].
 func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error {
 	outValue := reflect.ValueOf(out)
 	if !outValue.IsValid() {

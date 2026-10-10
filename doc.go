@@ -3,123 +3,38 @@
 // Source: github.com/woozymasta/jamle
 
 /*
-Package jamle (JSON and YAML with Env) provides a unified way to unmarshal
-YAML/JSON data with Bash-style environment variable expansion.
+Package jamle (JSON and YAML with Env) provides YAML/JSON decoding
+with Bash-style environment variable expansion.
 
-It uses the local JSON-tag-aware YAML codec from this module
-("github.com/woozymasta/jamle/yaml"), so one struct model with json tags
-works for both JSON and YAML inputs.
+The decoder uses the repository's JSON-tag-aware YAML codec,
+so one struct model with json tags can be used for both YAML and JSON input.
 
-Core APIs:
-  - Unmarshal: decode a single document with env-based variable lookup.
-  - UnmarshalWithOptions: decode with configurable resolver and behavior.
-  - UnmarshalAll: decode all YAML documents from a stream into a slice.
-  - UnmarshalAllWithOptions: decode all YAML documents with options.
+[Unmarshal] and [UnmarshalWithOptions] decode one document.
+[UnmarshalAll] and [UnmarshalAllWithOptions] decode YAML document streams into a slice.
 
-Supported variable expansion syntax:
+Supported expansion forms:
 
-  - ${VAR}           Value of VAR, or empty string if unset.
-  - ${VAR:-default}  Value of VAR, or "default" if VAR is unset or empty.
-  - ${VAR:=default}  Value of VAR, or "default" if unset/empty. Also sets VAR to "default" in the current environment.
-  - ${VAR:?error}    Value of VAR, or returns an error with "error" message if VAR is unset or empty.
-  - $${VAR}          Escaping. Evaluates to the literal string ${VAR} without expansion.
+  - `${VAR}` - value of `VAR`, or an empty string if it is unset.
+  - `${VAR:-default}` - value of `VAR`, or `default` if it is unset or empty.
+  - `${VAR:=default}` - value of `VAR`, or `default` if it is unset or empty;
+    the fallback is also assigned through [Setter].
+  - `${VAR:?message}` - value of `VAR`, or an error with `message` if it is unset or empty.
+  - `$${VAR}` - literal `${VAR}` without expansion.
 
-Example (default behavior with process environment):
+Nested expressions are evaluated lazily.
+Resolver values are expanded recursively, with [UnmarshalOptions.MaxDepth]
+and cycle detection preventing partial or unbounded evaluation.
 
-	type Config struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
-	}
+The zero value of [UnmarshalOptions] uses the process environment,
+enables assignment and required-variable errors,
+leaves mapping keys literal, and uses the default expansion depth.
+[UnmarshalOptions.IgnoreExpandPaths] and the `jamle:"noexpand"` tag
+keep selected scalar values literal.
 
-	data := []byte(`host: ${HOST:-localhost}`)
-	var cfg Config
-	err := jamle.Unmarshal(data, &cfg)
-	if err != nil {
-		panic(err)
-	}
-
-Example (custom resolver):
-
-	type mapResolver map[string]string
-
-	func (r mapResolver) Lookup(name string) (string, bool) {
-		v, ok := r[name]
-		return v, ok
-	}
-
-	var cfg Config
-	err := jamle.UnmarshalWithOptions([]byte(`
-	host: ${HOST:-localhost}
-	port: ${PORT:-8080}
-	`), &cfg, jamle.UnmarshalOptions{
-		Resolver: mapResolver{
-			"HOST": "svc.local",
-			"PORT": "9000",
-		},
-	})
-	if err != nil {
-		panic(err)
-	}
-
-Example (disable expansion for hook scripts):
-
-	type Hook struct {
-		Script string `json:"script" jamle:"noexpand"`
-		Args   string `json:"args"`
-	}
-
-	type Config struct {
-		Spec struct {
-			Hooks [][]Hook `json:"hooks"`
-		} `json:"spec"`
-	}
-
-	var cfg Config
-	err := jamle.UnmarshalWithOptions([]byte(`
-	spec:
-	  hooks:
-	    - - script: "echo ${HOME}"
-	        args: "${HOOK_ARGS:---verbose}"
-	`), &cfg, jamle.UnmarshalOptions{
-		IgnoreExpandPaths: []string{"spec.hooks.*.*.script"},
-	})
-	if err != nil {
-		panic(err)
-	}
-
-Example (multi-document YAML stream):
-
-	var all []Config
-	err := jamle.UnmarshalAll([]byte(`
-	---
-	host: a.local
-	port: 8080
-	---
-	host: b.local
-	port: 9090
-	`), &all)
-	if err != nil {
-		panic(err)
-	}
-
-Behavior notes:
-  - Unmarshal decodes one document. Use UnmarshalAll for YAML streams.
-  - For JSON inputs, placeholders with ":" operators should be quoted
-    as JSON strings.
-  - Use UnmarshalOptions{Assignment: AssignmentIgnore} to make
-    ${VAR:=default} behave like ${VAR:-default} without mutating resolver state.
-  - Use UnmarshalOptions{Required: RequiredIgnore} to make ${VAR:?error}
-    behave like ${VAR}.
-  - MaxDepth limits nested syntax and recursive resolver values; cycles and
-    depth exhaustion return errors instead of partial output.
-  - Use UnmarshalOptions.IgnoreExpandPaths or struct tag
-    `jamle:"noexpand"` when YAML contains shell `${...}` fragments
-    that must stay literal.
-  - Mapping keys are literal by default;
-	  use `UnmarshalOptions{ExpandKeys: true}` to expand scalar keys.
-  - For literal `${...}` in expandable fields, use `$${...}` escaping.
-  - ${VAR:=default} requires assignment support from resolver.
-    With UnmarshalWithOptions/UnmarshalAllWithOptions, this operator returns
-    an error unless the resolver also supports setting values.
+`${VAR:=default}` requires a resolver implementing [Setter].
+Use [AssignmentIgnore] to disable the assignment side effect
+and [RequiredIgnore] to suppress `${VAR:?message}` errors.
+For literal expansion syntax in a value, use `$${...}`.
+In JSON input, expressions containing `:` must be quoted as JSON strings.
 */
 package jamle

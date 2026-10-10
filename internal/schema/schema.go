@@ -49,7 +49,7 @@ type Field struct {
 	Opaque bool
 }
 
-// Info contains immutable metadata for one dereferenced struct type.
+// Info contains immutable metadata for one dereferenced struct type returned by [For].
 type Info struct {
 	// Type is the dereferenced type represented by this metadata.
 	Type reflect.Type
@@ -71,7 +71,7 @@ type Info struct {
 	Opaque bool
 }
 
-// For returns cached metadata for t. Pointer layers are ignored.
+// For returns cached [Info] metadata for t. Pointer layers are ignored.
 func For(t reflect.Type) *Info {
 	t = dereference(t)
 	if t == nil {
@@ -88,7 +88,8 @@ func For(t reflect.Type) *Info {
 	return actual.(*Info)
 }
 
-// Lookup resolves a JSON or YAML decode key using exact and case-insensitive rules.
+// Lookup resolves a JSON or YAML decode key using exact
+// and case-insensitive rules and returns the matching [Field].
 func (i *Info) Lookup(name string) (Field, bool) {
 	if i == nil {
 		return Field{}, false
@@ -374,7 +375,8 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 	}
 }
 
-// hasNoExpandOption reports whether a field or one of its containing fields carries jamle:"noexpand".
+// hasNoExpandOption reports whether a field
+// or one of its containing fields carries jamle:"noexpand".
 func hasNoExpandOption(root reflect.Type, index []int) bool {
 	current := root
 	for _, fieldIndex := range index {
