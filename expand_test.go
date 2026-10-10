@@ -6,6 +6,8 @@ package jamle
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"testing"
 
 	goyaml "go.yaml.in/yaml/v3"
@@ -14,6 +16,22 @@ import (
 // expansionTestResolver provides deterministic values for scalar tests.
 type expansionTestResolver struct {
 	values map[string]string
+}
+
+// errExpansionSetter is returned by the failing setter test.
+var errExpansionSetter = errors.New("setter failure")
+
+// expansionFailingSetter rejects every assignment for error propagation tests.
+type expansionFailingSetter struct{}
+
+// Lookup reports every variable as unset.
+func (expansionFailingSetter) Lookup(string) (string, bool) {
+	return "", false
+}
+
+// Set returns the underlying assignment error.
+func (expansionFailingSetter) Set(string, string) error {
+	return errExpansionSetter
 }
 
 // Lookup returns a test variable value.
@@ -359,5 +377,57 @@ func TestUnmarshalWithOptions_AliasCycleReturnsError(t *testing.T) {
 	err := UnmarshalWithOptions(input, &got, UnmarshalOptions{})
 	if !errors.Is(err, errAliasCycle) {
 		t.Fatalf("expected YAML alias cycle error, got %v", err)
+	}
+}
+
+func TestUnmarshalWithOptions_ExpansionErrorContext(t *testing.T) {
+	t.Run("required variable", func(t *testing.T) {
+		input := []byte("server:\n  database:\n    password: \"${DB_PASSWORD:?password is required}\"\n")
+
+		var got map[string]any
+		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
+			Resolver: expansionTestResolver{values: map[string]string{}},
+		})
+		if !errors.Is(err, ErrRequiredVariable) {
+			t.Fatalf("expected ErrRequiredVariable, got %v", err)
+		}
+		assertExpansionSourceContext(t, err, "server.database.password", 3)
+	})
+
+	t.Run("invalid syntax", func(t *testing.T) {
+		input := []byte("server:\n  value: \"${BROKEN\"\n")
+
+		var got map[string]any
+		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{})
+		if !errors.Is(err, ErrInvalidExpansion) {
+			t.Fatalf("expected ErrInvalidExpansion, got %v", err)
+		}
+		assertExpansionSourceContext(t, err, "server.value", 2)
+	})
+
+	t.Run("setter error unwraps", func(t *testing.T) {
+		input := []byte("value: \"${A:=fallback}\"\n")
+
+		var got map[string]any
+		err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
+			Resolver: expansionFailingSetter{},
+		})
+		if !errors.Is(err, errExpansionSetter) {
+			t.Fatalf("expected underlying setter error, got %v", err)
+		}
+		assertExpansionSourceContext(t, err, "value", 1)
+	})
+}
+
+func assertExpansionSourceContext(t *testing.T, err error, path string, line int) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected expansion error")
+	}
+
+	pattern := regexp.MustCompile(regexp.QuoteMeta(path) + `:` +
+		fmt.Sprintf(`%d`, line) + `:[0-9]+:`)
+	if !pattern.MatchString(err.Error()) {
+		t.Fatalf("error lacks source context %q: %v", path, err)
 	}
 }

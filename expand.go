@@ -103,7 +103,7 @@ func (t *logicalNodeTransformer) transform(
 		return nil, nil
 	}
 	if t.active[n] {
-		return nil, fmt.Errorf("%w at path %q", errAliasCycle, strings.Join(path, "."))
+		return nil, newExpansionSourceError(path, n.Line, n.Column, errAliasCycle)
 	}
 
 	t.active[n] = true
@@ -111,7 +111,12 @@ func (t *logicalNodeTransformer) transform(
 
 	target = dereferenceExpansionType(target)
 	if schema.IsOpaque(target) {
-		return cloneOpaqueGraph(n)
+		cloned, err := cloneOpaqueGraph(n)
+		if err != nil {
+			return nil, newExpansionSourceError(path, n.Line, n.Column, err)
+		}
+
+		return cloned, nil
 	}
 
 	if n.Kind == goyaml.AliasNode {
@@ -152,7 +157,7 @@ func (t *logicalNodeTransformer) transform(
 	case goyaml.ScalarNode:
 		if expand && !shouldIgnorePath(path, t.opts.ignorePathRules) {
 			if err := expandScalarNodeValue(cloned, t.opts); err != nil {
-				return nil, err
+				return nil, newExpansionSourceError(path, n.Line, n.Column, err)
 			}
 		}
 
@@ -215,7 +220,7 @@ func (t *logicalNodeTransformer) transformMapping(
 			keyPath := appendPathSegment(path, keyNode.Value)
 			if !shouldIgnorePath(keyPath, t.opts.ignorePathRules) {
 				if err := expandScalarNodeValue(keyNode, t.opts); err != nil {
-					return nil, err
+					return nil, newExpansionSourceError(keyPath, keyNode.Line, keyNode.Column, err)
 				}
 			}
 		}
@@ -596,7 +601,7 @@ func appendTemplateLiteral(segments []templateSegment, literal string) []templat
 
 // expansionSyntaxError annotates malformed expansion syntax with its offset.
 func expansionSyntaxError(offset int) error {
-	return fmt.Errorf("%w at byte %d", ErrExpansionSyntax, offset)
+	return fmt.Errorf("%w at byte %d", ErrInvalidExpansion, offset)
 }
 
 // evaluateTemplate evaluates segments while keeping unused words untouched.
@@ -705,7 +710,7 @@ func (e *expansionEvaluator) evaluateExpression(
 			message = "is not set or empty"
 		}
 
-		return "", fmt.Errorf("environment variable %q %s", expression.name, message)
+		return "", fmt.Errorf("variable %q: %w: %s", expression.name, ErrRequiredVariable, message)
 
 	default:
 		// `${VAR:word}` is intentionally outside the supported subset
