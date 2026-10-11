@@ -300,6 +300,43 @@ b: *value
 	}
 }
 
+func TestUnmarshalWithOptions_ExpandKeysAliasConsumersUseTheirOwnPolicy(t *testing.T) {
+	type document struct {
+		A map[string]string `json:"a"`
+		B map[string]string `json:"b"`
+	}
+
+	input := []byte(`
+base: &value
+  ${KEY}: value
+a: *value
+b: *value
+`)
+	resolver := ResolveFunc(func(name string) (string, bool) {
+		if name == "KEY" {
+			return "expanded", true
+		}
+
+		return "", false
+	})
+
+	var got document
+	if err := UnmarshalWithOptions(input, &got, UnmarshalOptions{
+		Resolver:          resolver,
+		ExpandKeys:        true,
+		IgnoreExpandPaths: []string{"a.${KEY}"},
+	}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	if got.A["${KEY}"] != "value" {
+		t.Fatalf("noexpand alias key mismatch: %#v", got.A)
+	}
+	if got.B["expanded"] != "value" {
+		t.Fatalf("expanded alias key mismatch: %#v", got.B)
+	}
+}
+
 func TestUnmarshalWithOptions_MergeUsesConsumerSchemaAndPath(t *testing.T) {
 	type config struct {
 		Name   string `json:"name"`

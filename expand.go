@@ -210,6 +210,9 @@ func (t *logicalNodeTransformer) transformMapping(
 			}
 
 			keyNode = transformed
+		} else if expand && t.opts.expandKeys && keyNode.Kind == goyaml.ScalarNode &&
+			!isMergeKey(keyNode) {
+			keyNode = copyLogicalNode(keyNode)
 		}
 
 		cloned.Content[i] = keyNode
