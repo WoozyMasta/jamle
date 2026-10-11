@@ -4,7 +4,7 @@
 
 /*
 Package jamle (JSON and YAML with Env) provides YAML/JSON decoding
-with Bash-style environment variable expansion.
+with a Bash-style parameter expansion subset.
 
 The decoder uses the repository's JSON-tag-aware YAML codec,
 so one struct model with json tags can be used for both YAML and JSON input.
@@ -40,6 +40,7 @@ map keys and interface values remain open.
 Fields with a `default` struct tag receive that value only when the source
 field is absent. Explicit zero values and null remain unchanged. Use
 [UnmarshalOptions.DisableDefaults] to skip default-tag processing.
+Use `default:"-"` on a struct field to skip defaults for that field and its nested values.
 
 `${VAR:=default}` requires a resolver implementing [Setter].
 Use [AssignmentIgnore] to disable the assignment side effect

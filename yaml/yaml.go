@@ -35,7 +35,7 @@ func Unmarshal(y []byte, o any) error {
 	return UnmarshalWithOptions(y, o, DecodeOptions{})
 }
 
-// JSONToYAML converts JSON to YAML while preserving JSON number types.
+// JSONToYAML converts JSON to YAML using go-yaml's native numeric types.
 func JSONToYAML(j []byte) ([]byte, error) {
 	var raw json.RawMessage
 	if err := json.Unmarshal(j, &raw); err != nil {

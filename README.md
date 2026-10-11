@@ -71,7 +71,7 @@ jamle config.yaml
 
 ## Supported Syntax
 
-`jamle` supports Bash-style variable expansion,
+`jamle` supports a Bash-style parameter expansion subset,
 including recursion and side effects:
 
 Syntax            | Description
@@ -223,6 +223,8 @@ Do not also call `creasty/defaults.Set` on the same value
 unless applying two different defaulting policies is intentional.
 Default tag values are literal;
 expansion syntax inside a `default` tag is not supported.
+Use `default:"-"` on a struct field to skip defaults
+for that field and its nested values.
 
 Mapping keys stay literal by default.
 Enable `ExpandKeys` only when document deliberately uses expressions as keys:

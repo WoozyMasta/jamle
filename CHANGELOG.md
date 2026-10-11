@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning][].
 ### Changed
 
 * Single-document unmarshal APIs now reject additional YAML documents.
+* Expansion options changed: `MaxPasses` is replaced by `MaxDepth`,
+  while `DisableAssignment` and `DisableRequiredErrors`
+  are replaced by the `Assignment` and `Required` modes.
 * Nested expansion is lazy, and resolver cycles or depth exhaustion
   now return errors instead of partial unresolved values.
 * Mapping keys remain literal by default;
