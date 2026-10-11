@@ -1,36 +1,37 @@
-GO          ?= go
-LINTER      ?= golangci-lint
-ALIGNER     ?= betteralign
-VULNCHECK   ?= govulncheck
-BENCHSTAT   ?= benchstat
-CYCLO       ?= cyclonedx-gomod
+GO                ?= go
+BINARY            ?= jamle
+OUTPUT_DIR        ?= build
+CGO_ENABLED       ?= 0
+GOFLAGS           ?= -buildvcs=auto -trimpath
+LDFLAGS           ?= -s -w
+GOWORK            ?= off
 
-CGO_ENABLED ?= 0
-GOFLAGS     ?= -buildvcs=auto -trimpath
-LDFLAGS     ?= -s -w
-GOWORK      ?= off
-GOFTAGS     ?= forceposix
+LINTER            ?= golangci-lint
+LINTER_VERSION    ?= v2.13.2
+ALIGNER           ?= betteralign
+ALIGNER_VERSION   ?= v0.15.1
+VULNCHECK         ?= govulncheck
+VULNCHECK_VERSION ?= v1.8.0
+BENCHSTAT         ?= benchstat
 
-BENCH_COUNT ?= 6
-BENCH_REF   ?= bench_baseline.txt
-MODULE_PATH ?= $(shell GOWORK=off $(GO) list -m -f '{{.Path}}')
+RUMDL             ?= rumdl
 
-BINARY      ?= jamle
-PKG         ?= ./cmd/jamle
-OUTPUT_DIR  ?= build
+RELEASE_MATRIX    ?= \
+	linux/amd64 linux/arm64 \
+	darwin/amd64 darwin/arm64 \
+	windows/amd64 windows/arm64
 
-RELEASE_MATRIX ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
-
-NATIVE_GOOS      := $(shell go env GOOS)
-NATIVE_GOARCH    := $(shell go env GOARCH)
-NATIVE_EXTENSION := $(if $(filter $(NATIVE_GOOS),windows),.exe,)
-
-VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
-COMMIT  := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
-DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-URL     ?= https://$(MODULE_PATH)
-
-LDFLAGS_X := \
+MODULE_PATH       := $(shell $(GO) list -m -f '{{.Path}}')
+NATIVE_GOOS       := $(shell $(GO) env GOOS)
+NATIVE_GOARCH     := $(shell $(GO) env GOARCH)
+BUILD_GOOS        ?= $(NATIVE_GOOS)
+BUILD_GOARCH      ?= $(NATIVE_GOARCH)
+BUILD_EXTENSION   := $(if $(filter windows,$(BUILD_GOOS)),.exe,)
+VERSION           := $(shell git describe --tags --abbrev=0 2>/dev/null || printf v0.0.0)
+COMMIT            := $(shell git rev-parse HEAD 2>/dev/null || printf unknown)
+DATE              := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+URL               := https://$(MODULE_PATH)
+LDFLAGS_X         := \
 	-X 'main.Version=$(VERSION)' \
 	-X 'main.Commit=$(COMMIT)' \
 	-X 'main._buildTime=$(DATE)' \
@@ -41,64 +42,57 @@ ifeq ($(RACE),1)
 	EXTRA_BUILD_FLAGS := -race
 endif
 
-.PHONY: test test-race test-short bench bench-fast bench-reset verify vet check ci \
-	fmt fmt-check lint lint-fix align align-fix tidy tidy-check download deps-update \
-	tools tools-ci tool-golangci-lint tool-betteralign tool-govulncheck tool-benchstat tool-cyclonedx \
-	release-notes sbom sbom-app sbom-bin
+BENCH_COUNT       ?= 6
+BENCH_REF         ?= bench_baseline.txt
+FUZZ_TIME         ?= 20s
 
-check: verify vulncheck tidy fmt vet lint-fix align-fix test
-ci: download tools-ci verify vulncheck tidy-check fmt-check vet lint align test
+export GOWORK
+
+.PHONY: clean build release
 
 clean:
 	rm -rf $(OUTPUT_DIR)
 
 build: clean
 	@mkdir -p $(OUTPUT_DIR)
-	@echo ">> building native: $(BINARY)$(NATIVE_EXTENSION)"
-	GOOS=$(NATIVE_GOOS) GOARCH=$(NATIVE_GOARCH) \
+	@echo ">> build: $(BINARY)$(BUILD_EXTENSION) ($(BUILD_GOOS)/$(BUILD_GOARCH))"
+	GOOS=$(BUILD_GOOS) GOARCH=$(BUILD_GOARCH) \
 	GOWORK=$(GOWORK) CGO_ENABLED=$(CGO_ENABLED) \
-	$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS) $(LDFLAGS_X)" -tags "$(GOFTAGS)" $(EXTRA_BUILD_FLAGS) \
-	-o $(OUTPUT_DIR)/$(BINARY)$(NATIVE_EXTENSION) $(PKG)
-	@$(MAKE) _sbom_bin_one GOOS=$(NATIVE_GOOS) GOARCH=$(NATIVE_GOARCH) BIN=$(BINARY) OUTEXT="$(NATIVE_EXTENSION)"
+	$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS) $(LDFLAGS_X)" \
+		$(EXTRA_BUILD_FLAGS) -o $(OUTPUT_DIR)/$(BINARY)$(BUILD_EXTENSION) ./cmd/$(BINARY)
 
 release: clean
 	@mkdir -p $(OUTPUT_DIR)
-	@for target in $(RELEASE_MATRIX); do \
+	@set -e; \
+	for target in $(RELEASE_MATRIX); do \
 		goos=$${target%%/*}; \
 		goarch=$${target##*/}; \
 		ext=$$( [ $$goos = "windows" ] && echo ".exe" || echo "" ); \
 		out="$(OUTPUT_DIR)/$(BINARY)-$${goos}-$${goarch}$$ext"; \
-		echo ">> building $$out"; \
-		GOOS=$$goos GOARCH=$$goarch \
-		GOWORK=$(GOWORK) CGO_ENABLED=$(CGO_ENABLED) \
-		$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS) $(LDFLAGS_X)" -tags "$(GOFTAGS)" \
-		-o $$out $(PKG); \
-		$(MAKE) --no-print-directory _sbom_bin_one GOOS=$$goos GOARCH=$$goarch BIN=$(BINARY)-$${goos}-$${goarch} OUTEXT="$$ext"; \
+		echo ">> build $$out"; \
+		GOOS=$$goos GOARCH=$$goarch GOWORK=$(GOWORK) CGO_ENABLED=$(CGO_ENABLED) \
+			$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS) $(LDFLAGS_X)" \
+				-o $$out ./cmd/$(BINARY); \
 	done
-	@$(MAKE) sbom-app
 
-fmt:
-	gofmt -w .
+.PHONY: check ci
 
-fmt-check:
-	@files=$$(gofmt -l .); \
-	if [ -n "$$files" ]; then \
-		echo "$$files" 1>&2; \
-		echo "gofmt: files need formatting" 1>&2; \
-		exit 1; \
-	fi
+check: verify tidy fmt vet vulncheck lint-fix align-fix test test-race markdown-lint
+ci: download tools-ci verify tidy-check fmt-check vet vulncheck lint align test
 
-vet:
-	$(GO) vet ./...
+.PHONY: test test-race fuzz
 
 test:
 	$(GO) test ./...
 
 test-race:
-	$(GO) test -race ./...
+	CGO_ENABLED=1 $(GO) test -race ./...
 
-test-short:
-	$(GO) test -short ./...
+fuzz:
+	$(GO) test ./ -run='^$$' -fuzz='^FuzzExpand$$' -fuzztime=$(FUZZ_TIME)
+	$(GO) test ./ -run='^$$' -fuzz='^FuzzUnmarshalWithOptionsSchemaTraversal$$' -fuzztime=$(FUZZ_TIME)
+
+.PHONY: bench bench-fast bench-reset
 
 bench:
 	@tmp=$$(mktemp); \
@@ -116,8 +110,19 @@ bench-fast:
 bench-reset:
 	rm -f "$(BENCH_REF)"
 
+.PHONY: download verify vet tidy tidy-check fmt fmt-check vulncheck lint lint-fix align align-fix
+
+download:
+	$(GO) mod download
+
 verify:
 	$(GO) mod verify
+
+vet:
+	$(GO) vet ./...
+
+tidy:
+	$(GO) mod tidy
 
 tidy-check:
 	@$(GO) mod tidy
@@ -126,15 +131,19 @@ tidy-check:
 		exit 1; \
 	)
 
-tidy:
-	$(GO) mod tidy
+fmt:
+	$(GO) fmt ./...
 
-download:
-	$(GO) mod download
+fmt-check:
+	@files="$$(gofmt -l .)"; \
+	if [ -n "$$files" ]; then \
+		echo "$$files"; \
+		echo "gofmt: files need formatting"; \
+		exit 1; \
+	fi
 
-deps-update:
-	$(GO) get -u ./...
-	$(GO) mod tidy
+vulncheck:
+	$(VULNCHECK) ./...
 
 lint:
 	$(LINTER) run ./...
@@ -149,26 +158,24 @@ align-fix:
 	-$(ALIGNER) -apply ./...
 	$(ALIGNER) ./...
 
-vulncheck:
-	$(VULNCHECK) ./...
+.PHONY: tools tools-ci tool-golangci-lint tool-betteralign tool-govulncheck tool-benchstat
 
-tools: tool-golangci-lint tool-betteralign tool-govulncheck tool-benchstat tool-cyclonedx
-tools-ci: tool-golangci-lint tool-betteralign tool-govulncheck tool-cyclonedx
+tools: tool-golangci-lint tool-betteralign tool-govulncheck tool-benchstat
+tools-ci: tool-golangci-lint tool-betteralign tool-govulncheck
 
 tool-golangci-lint:
-	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINTER_VERSION)
 
 tool-betteralign:
-	$(GO) install github.com/dkorunic/betteralign/cmd/betteralign@latest
+	$(GO) install github.com/dkorunic/betteralign/cmd/betteralign@$(ALIGNER_VERSION)
 
 tool-govulncheck:
-	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(VULNCHECK_VERSION)
 
 tool-benchstat:
 	$(GO) install golang.org/x/perf/cmd/benchstat@latest
 
-tool-cyclonedx:
-	$(GO) install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+.PHONY: release-notes
 
 release-notes:
 	@awk '\
@@ -187,22 +194,19 @@ release-notes:
 	END { flush() } \
 	' CHANGELOG.md
 
-sbom: sbom-app sbom-bin
+.PHONY: markdown-lint markdown-fix
 
-sbom-app:
-	@echo ">> SBOM (app)"
-	$(CYCLO) app -json -packages -files -licenses \
-		-output "$(OUTPUT_DIR)/$(BINARY).sbom.json" -main "$(PKG)"
-
-sbom-bin:
-	@echo ">> SBOM (bin native if exists)"
-	@[ -f "$(OUTPUT_DIR)/$(BINARY)$(NATIVE_EXTENSION)" ] && \
-		$(CYCLO) bin -json -output "$(OUTPUT_DIR)/$(BINARY)$(NATIVE_EXTENSION).sbom.json" \
-			"$(OUTPUT_DIR)/$(BINARY)$(NATIVE_EXTENSION)" || true
-
-_sbom_bin_one:
-	@bin="$(OUTPUT_DIR)/$(BIN)$(OUTEXT)"; \
-	if [ -f "$$bin" ]; then \
-		echo ">> SBOM (bin) $$bin"; \
-		$(CYCLO) bin -json -output "$$bin.sbom.json" "$$bin"; \
+define run-rumdl
+	@if command -v $(RUMDL) &>/dev/null; then \
+		$(RUMDL) $(1); \
+	else \
+		echo "WARN: $(RUMDL) not found; skipping markdown lint."; \
+		echo 'WARN: Install it https://github.com/rvben/rumdl'; \
 	fi
+endef
+
+markdown-lint:
+	$(call run-rumdl,check)
+
+markdown-fix:
+	$(call run-rumdl,check --fix)
