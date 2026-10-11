@@ -76,7 +76,7 @@ func BenchmarkEffectiveMappingNoMerge(b *testing.B) {
 // plainMapping builds a mapping without merge keys for benchmarks.
 func plainMapping(size int) *goyaml.Node {
 	content := make([]*goyaml.Node, 0, size*2)
-	for index := 0; index < size; index++ {
+	for index := range size {
 		content = append(content,
 			&goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!str", Value: fmt.Sprintf("key%d", index)},
 			&goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!str", Value: "value"},
