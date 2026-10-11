@@ -62,8 +62,9 @@ func (*schemaOpaqueText) UnmarshalText([]byte) error {
 
 func TestForJSONFieldRules(t *testing.T) {
 	type config struct {
-		Plain   string `json:"plain"`
-		Ignored string `json:"-"`
+		Plain        string `json:"plain"`
+		Ignored      string `json:"-"`
+		IgnoredAlias string `json:"-" yaml:"hidden"`
 		schemaEmbedded
 		*schemaPointerEmbedded
 		schemaLeft
@@ -73,6 +74,11 @@ func TestForJSONFieldRules(t *testing.T) {
 	info := For(reflect.TypeFor[config]())
 	if _, ok := info.Lookup("ignored"); ok {
 		t.Fatal("json '-' field was included")
+	}
+	for _, name := range []string{"ignored", "hidden"} {
+		if !info.IsIgnoredKey(name) {
+			t.Fatalf("JSON-ignored key %q was not recorded", name)
+		}
 	}
 
 	for _, name := range []string{"plain", "name", "port"} {

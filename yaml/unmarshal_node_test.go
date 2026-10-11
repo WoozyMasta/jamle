@@ -271,6 +271,23 @@ func TestUnmarshalNode_AnonymousEmbeddedUsesJSONPromotion(t *testing.T) {
 	}
 }
 
+func TestUnmarshalNode_IgnoresJSONIgnoredFields(t *testing.T) {
+	t.Parallel()
+
+	type sample struct {
+		Ignored       string `json:"-" yaml:"hidden"`
+		IgnoredByName string `json:"-"`
+	}
+
+	var got sample
+	if err := unmarshalNodeFromString("hidden: value\nignoredbyname: other\n", &got); err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if got.Ignored != "" || got.IgnoredByName != "" {
+		t.Fatalf("JSON-ignored field was decoded: %#v", got)
+	}
+}
+
 func TestUnmarshalNode_PointerSliceMap(t *testing.T) {
 	t.Parallel()
 

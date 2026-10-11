@@ -179,8 +179,15 @@ func (r *jsonTagRemapper) remapStructMappingNodeKeys(n *goyaml.Node, target refl
 		valNode := n.Content[i+1]
 
 		decodedField, ok := lookup.Lookup(keyNode.Value)
-		if !ok || decodedField.YAMLDecodeKey == "-" {
+		if !ok {
+			if lookup.IsIgnoredKey(keyNode.Value) {
+				continue
+			}
+
 			content = append(content, keyNode, valNode)
+			continue
+		}
+		if decodedField.YAMLDecodeKey == "-" {
 			continue
 		}
 

@@ -63,6 +63,10 @@ type Info struct {
 	folded map[string]int
 	// yamlFolded maps lowercase YAML decode keys to field indexes.
 	yamlFolded map[string]int
+	// ignoredExact stores YAML keys ignored by the canonical JSON field set.
+	ignoredExact map[string]struct{}
+	// ignoredFolded stores lowercase ignored YAML keys for case-insensitive lookup.
+	ignoredFolded map[string]struct{}
 	// Fields contains fields selected by JSON embedding rules.
 	Fields []Field
 	// HasDefaults reports whether a selected field has a default tag.
@@ -133,6 +137,21 @@ func (i *Info) Lookup(name string) (Field, bool) {
 	return Field{}, false
 }
 
+// IsIgnoredKey reports whether name targets a field ignored by JSON rules.
+func (i *Info) IsIgnoredKey(name string) bool {
+	if i == nil {
+		return false
+	}
+	if _, ok := i.ignoredExact[name]; ok {
+		return true
+	}
+	if _, ok := i.ignoredFolded[strings.ToLower(name)]; ok {
+		return true
+	}
+
+	return false
+}
+
 // IsOpaque reports whether t owns its decoding through a supported interface.
 func IsOpaque(t reflect.Type) bool {
 	t = dereference(t)
@@ -170,11 +189,13 @@ func buildInfo(t reflect.Type) *Info {
 	}
 
 	info := &Info{
-		Type:       t,
-		exact:      make(map[string]int),
-		yamlExact:  make(map[string]int),
-		folded:     make(map[string]int),
-		yamlFolded: make(map[string]int),
+		Type:          t,
+		exact:         make(map[string]int),
+		yamlExact:     make(map[string]int),
+		folded:        make(map[string]int),
+		yamlFolded:    make(map[string]int),
+		ignoredExact:  make(map[string]struct{}),
+		ignoredFolded: make(map[string]struct{}),
 	}
 	if IsOpaque(t) {
 		info.Opaque = true
@@ -206,6 +227,10 @@ func buildInfo(t reflect.Type) *Info {
 			info.yamlFolded[strings.ToLower(field.YAMLDecodeKey)] = index
 		}
 	}
+	for _, key := range ignoredYAMLKeys(t) {
+		info.ignoredExact[key] = struct{}{}
+		info.ignoredFolded[strings.ToLower(key)] = struct{}{}
+	}
 
 	return info
 }
@@ -213,12 +238,63 @@ func buildInfo(t reflect.Type) *Info {
 // emptyInfo returns metadata for types without struct fields.
 func emptyInfo(t reflect.Type) *Info {
 	return &Info{
-		Type:       t,
-		exact:      make(map[string]int),
-		yamlExact:  make(map[string]int),
-		folded:     make(map[string]int),
-		yamlFolded: make(map[string]int),
+		Type:          t,
+		exact:         make(map[string]int),
+		yamlExact:     make(map[string]int),
+		folded:        make(map[string]int),
+		yamlFolded:    make(map[string]int),
+		ignoredExact:  make(map[string]struct{}),
+		ignoredFolded: make(map[string]struct{}),
 	}
+}
+
+// ignoredYAMLKeys collects keys that go-yaml could decode into JSON-ignored fields.
+func ignoredYAMLKeys(t reflect.Type) []string {
+	return ignoredYAMLKeysSeen(t, make(map[reflect.Type]bool))
+}
+
+// ignoredYAMLKeysSeen walks promoted structs without following type cycles.
+func ignoredYAMLKeysSeen(t reflect.Type, active map[reflect.Type]bool) []string {
+	t = dereference(t)
+	if t == nil || t.Kind() != reflect.Struct || IsOpaque(t) || active[t] {
+		return nil
+	}
+	active[t] = true
+	defer delete(active, t)
+
+	var keys []string
+	for index := 0; index < t.NumField(); index++ {
+		field := t.Field(index)
+		jsonKey, _ := jsonName(field)
+		yamlTag := field.Tag.Get("yaml")
+		yamlKey := splitTag(yamlTag)
+		embedded := embeddedType(field.Type)
+
+		if jsonKey == "-" {
+			if yamlKey == "-" {
+				continue
+			}
+			if field.Anonymous && embedded.Kind() == reflect.Struct &&
+				tagOptions(yamlTag).contains("inline") {
+				keys = append(keys, ignoredYAMLKeysSeen(embedded, active)...)
+				continue
+			}
+
+			keys = append(keys, yamlDecodeKey(field))
+			continue
+		}
+		if !field.Anonymous || embedded.Kind() != reflect.Struct {
+			continue
+		}
+		if jsonKey != "" || (yamlKey != "" && yamlKey != "-") ||
+			(yamlTag != "" && !tagOptions(yamlTag).contains("inline")) {
+			continue
+		}
+
+		keys = append(keys, ignoredYAMLKeysSeen(embedded, active)...)
+	}
+
+	return keys
 }
 
 // discoveredField is the intermediate field representation used by discovery.
