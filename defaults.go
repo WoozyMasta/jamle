@@ -35,6 +35,16 @@ type defaultNodeResult struct {
 	err error
 }
 
+// defaultMapEntry stores one effective map entry and its source node.
+type defaultMapEntry struct {
+	// key is the decoded destination map key.
+	key reflect.Value
+	// keyNode is the source YAML key used for diagnostics.
+	keyNode *goyaml.Node
+	// valueNode is the source YAML value for nested default traversal.
+	valueNode *goyaml.Node
+}
+
 // hasDefaults reports whether t or any reachable schema field needs defaults.
 func hasDefaults(t reflect.Type) bool {
 	t = dereferenceExpansionType(t)
@@ -254,14 +264,14 @@ func applyDefaultsMap(
 		return nil
 	}
 
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		keyNode := node.Content[index]
-		valueNode := node.Content[index+1]
-		key, err := decodeDefaultMapKey(keyNode, dst.Type().Key())
-		if err != nil {
-			return fmt.Errorf("default traversal at %s: %w", path, err)
-		}
+	entries, err := collectDefaultMapEntries(node, dst.Type().Key(), active)
+	if err != nil {
+		return err
+	}
 
+	for _, entry := range entries {
+		keyNode := entry.keyNode
+		key := entry.key
 		value := dst.MapIndex(key)
 		if !value.IsValid() || !value.CanInterface() {
 			continue
@@ -271,7 +281,7 @@ func applyDefaultsMap(
 		updated.Set(value)
 		if err := applyDefaultsValue(
 			updated,
-			valueNode,
+			entry.valueNode,
 			joinDefaultPath(path, keyNode.Value),
 			active,
 		); err != nil {
@@ -281,6 +291,97 @@ func applyDefaultsMap(
 	}
 
 	return nil
+}
+
+// collectDefaultMapEntries returns effective map entries, including YAML merges.
+func collectDefaultMapEntries(
+	node *goyaml.Node,
+	keyType reflect.Type,
+	active map[*goyaml.Node]bool,
+) ([]defaultMapEntry, error) {
+	if node == nil {
+		return nil, nil
+	}
+
+	for node.Kind == goyaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	if node.Kind == goyaml.AliasNode {
+		if node.Alias == nil {
+			return nil, nil
+		}
+		if active[node] {
+			return nil, errDefaultAliasCycle
+		}
+
+		active[node] = true
+		defer delete(active, node)
+		return collectDefaultMapEntries(node.Alias, keyType, active)
+	}
+	if node.Kind != goyaml.MappingNode {
+		return nil, nil
+	}
+
+	entries := make([]defaultMapEntry, 0, len(node.Content)/2)
+	add := func(entry defaultMapEntry, override bool) {
+		position := -1
+		for index, existing := range entries {
+			if reflect.DeepEqual(existing.key.Interface(), entry.key.Interface()) {
+				position = index
+				break
+			}
+		}
+
+		if position >= 0 {
+			if override {
+				entries[position] = entry
+			}
+			return
+		}
+
+		entries = append(entries, entry)
+	}
+
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		keyNode := node.Content[index]
+		valueNode := node.Content[index+1]
+		if isMergeKey(keyNode) {
+			if valueNode.Kind == goyaml.SequenceNode {
+				for _, source := range valueNode.Content {
+					merged, err := collectDefaultMapEntries(source, keyType, active)
+					if err != nil {
+						return nil, err
+					}
+
+					for _, entry := range merged {
+						add(entry, false)
+					}
+				}
+
+				continue
+			}
+
+			merged, err := collectDefaultMapEntries(valueNode, keyType, active)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, entry := range merged {
+				add(entry, false)
+			}
+
+			continue
+		}
+
+		key, err := decodeDefaultMapKey(keyNode, keyType)
+		if err != nil {
+			return nil, fmt.Errorf("default traversal at map key %q: %w", keyNode.Value, err)
+		}
+
+		add(defaultMapEntry{key: key, keyNode: keyNode, valueNode: valueNode}, true)
+	}
+
+	return entries, nil
 }
 
 // collectDefaultSources returns effective struct field sources, including YAML merges.

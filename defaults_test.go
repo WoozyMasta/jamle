@@ -198,6 +198,27 @@ func TestUnmarshalWithOptions_DefaultsAliasesAndMerge(t *testing.T) {
 	}
 }
 
+func TestUnmarshalWithOptions_DefaultsInMapMerge(t *testing.T) {
+	t.Parallel()
+
+	type item struct {
+		Name string `json:"name" default:"item"`
+	}
+	type config struct {
+		Base  map[string]item `json:"base"`
+		Items map[string]item `json:"items"`
+	}
+
+	input := []byte("base: &base\n  first: {}\nitems:\n  <<: *base\n")
+	var got config
+	if err := Unmarshal(input, &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if got.Base["first"].Name != "item" || got.Items["first"].Name != "item" {
+		t.Fatalf("map merge defaults mismatch: %#v", got)
+	}
+}
+
 func TestUnmarshalWithOptions_DefaultsSkipRecursiveAndSpecialTypes(t *testing.T) {
 	t.Parallel()
 
