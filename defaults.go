@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"reflect"
 	"sync"
 
 	"github.com/woozymasta/jamle/internal/schema"
+	nodeview "github.com/woozymasta/jamle/internal/yamlnode"
 	jyaml "github.com/woozymasta/jamle/yaml"
 	goyaml "go.yaml.in/yaml/v3"
 )
@@ -37,12 +37,12 @@ type defaultNodeResult struct {
 
 // defaultMapEntry stores one effective map entry and its source node.
 type defaultMapEntry struct {
-	// key is the decoded destination map key.
-	key reflect.Value
 	// keyNode is the source YAML key used for diagnostics.
 	keyNode *goyaml.Node
 	// valueNode is the source YAML value for nested default traversal.
 	valueNode *goyaml.Node
+	// key is the decoded destination map key.
+	key reflect.Value
 }
 
 // hasDefaults reports whether t or any reachable schema field needs defaults.
@@ -264,7 +264,7 @@ func applyDefaultsMap(
 		return nil
 	}
 
-	entries, err := collectDefaultMapEntries(node, dst.Type().Key(), active)
+	entries, err := collectDefaultMapEntries(node, dst.Type().Key())
 	if err != nil {
 		return err
 	}
@@ -297,175 +297,51 @@ func applyDefaultsMap(
 func collectDefaultMapEntries(
 	node *goyaml.Node,
 	keyType reflect.Type,
-	active map[*goyaml.Node]bool,
 ) ([]defaultMapEntry, error) {
-	if node == nil {
+	entries, err := nodeview.EffectiveMapping(node)
+	if err != nil {
+		return nil, errDefaultAliasCycle
+	}
+	if len(entries) == 0 {
 		return nil, nil
 	}
 
-	for node.Kind == goyaml.DocumentNode && len(node.Content) > 0 {
-		node = node.Content[0]
-	}
-	if node.Kind == goyaml.AliasNode {
-		if node.Alias == nil {
-			return nil, nil
-		}
-		if active[node] {
-			return nil, errDefaultAliasCycle
-		}
-
-		active[node] = true
-		defer delete(active, node)
-		return collectDefaultMapEntries(node.Alias, keyType, active)
-	}
-	if node.Kind != goyaml.MappingNode {
-		return nil, nil
-	}
-
-	entries := make([]defaultMapEntry, 0, len(node.Content)/2)
-	add := func(entry defaultMapEntry, override bool) {
-		position := -1
-		for index, existing := range entries {
-			if reflect.DeepEqual(existing.key.Interface(), entry.key.Interface()) {
-				position = index
-				break
-			}
-		}
-
-		if position >= 0 {
-			if override {
-				entries[position] = entry
-			}
-			return
-		}
-
-		entries = append(entries, entry)
-	}
-
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		keyNode := node.Content[index]
-		valueNode := node.Content[index+1]
-		if isMergeKey(keyNode) {
-			if valueNode.Kind == goyaml.SequenceNode {
-				for _, source := range valueNode.Content {
-					merged, err := collectDefaultMapEntries(source, keyType, active)
-					if err != nil {
-						return nil, err
-					}
-
-					for _, entry := range merged {
-						add(entry, false)
-					}
-				}
-
-				continue
-			}
-
-			merged, err := collectDefaultMapEntries(valueNode, keyType, active)
-			if err != nil {
-				return nil, err
-			}
-
-			for _, entry := range merged {
-				add(entry, false)
-			}
-
-			continue
-		}
-
-		key, err := decodeDefaultMapKey(keyNode, keyType)
+	result := make([]defaultMapEntry, 0, len(entries))
+	for _, entry := range entries {
+		key, err := decodeDefaultMapKey(entry.Key, keyType)
 		if err != nil {
-			return nil, fmt.Errorf("default traversal at map key %q: %w", keyNode.Value, err)
+			return nil, fmt.Errorf("default traversal at map key %q: %w", entry.Key.Value, err)
 		}
-
-		add(defaultMapEntry{key: key, keyNode: keyNode, valueNode: valueNode}, true)
+		result = append(result, defaultMapEntry{key: key, keyNode: entry.Key, valueNode: entry.Value})
 	}
 
-	return entries, nil
+	return result, nil
 }
 
 // collectDefaultSources returns effective struct field sources, including YAML merges.
 func collectDefaultSources(node *goyaml.Node, target reflect.Type) (map[string]*goyaml.Node, error) {
-	return collectDefaultMappingSources(node, target, make(map[*goyaml.Node]bool))
+	return collectDefaultMappingSources(node, target)
 }
 
 // collectDefaultMappingSources returns effective field sources for one mapping.
 func collectDefaultMappingSources(
 	node *goyaml.Node,
 	target reflect.Type,
-	active map[*goyaml.Node]bool,
 ) (map[string]*goyaml.Node, error) {
-	if node == nil {
-		return nil, nil
-	}
-
-	for node.Kind == goyaml.DocumentNode && len(node.Content) > 0 {
-		node = node.Content[0]
-	}
-	if node.Kind == goyaml.AliasNode {
-		if node.Alias == nil {
-			return nil, nil
-		}
-		if active[node] {
-			return nil, errDefaultAliasCycle
-		}
-
-		active[node] = true
-		defer delete(active, node)
-		return collectDefaultMappingSources(node.Alias, target, active)
-	}
-
-	if node.Kind != goyaml.MappingNode {
-		return nil, nil
-	}
-	if len(node.Content) == 0 {
-		return nil, nil
+	entries, err := nodeview.EffectiveMapping(node)
+	if err != nil {
+		return nil, errDefaultAliasCycle
 	}
 
 	lookup := schema.For(target)
 	sources := make(map[string]*goyaml.Node)
-	explicit := make(map[string]*goyaml.Node)
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		keyNode := node.Content[index]
-		valueNode := node.Content[index+1]
-		if isMergeKey(keyNode) {
-			if valueNode.Kind == goyaml.SequenceNode {
-				for _, source := range valueNode.Content {
-					merged, err := collectDefaultMappingSources(source, target, active)
-					if err != nil {
-						return nil, err
-					}
-
-					for name, sourceNode := range merged {
-						if _, exists := sources[name]; !exists {
-							sources[name] = sourceNode
-						}
-					}
-				}
-				continue
-			}
-
-			merged, err := collectDefaultMappingSources(valueNode, target, active)
-			if err != nil {
-				return nil, err
-			}
-
-			for name, sourceNode := range merged {
-				if _, exists := sources[name]; !exists {
-					sources[name] = sourceNode
-				}
-			}
-
-			continue
-		}
-
-		field, ok := lookup.Lookup(keyNode.Value)
+	for _, entry := range entries {
+		field, ok := lookup.Lookup(entry.Key.Value)
 		if ok && field.YAMLDecodeKey != "-" {
-			explicit[field.JSONName] = valueNode
+			sources[field.JSONName] = entry.Value
 		}
 	}
 
-	maps.Copy(sources, explicit)
 	return sources, nil
 }
 

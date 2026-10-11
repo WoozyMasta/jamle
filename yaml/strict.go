@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/woozymasta/jamle/internal/schema"
+	nodeview "github.com/woozymasta/jamle/internal/yamlnode"
 	goyaml "go.yaml.in/yaml/v3"
 )
 
@@ -152,28 +153,22 @@ func (v *strictYAMLValidator) validateStructMapping(
 	target reflect.Type,
 ) error {
 	lookup := schema.For(target)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		keyNode := node.Content[i]
-		valueNode := node.Content[i+1]
-		if isStrictYAMLMergeKey(keyNode) {
-			if err := v.validateMerge(valueNode, path, target); err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		field, ok := lookup.Lookup(keyNode.Value)
+	entries, err := nodeview.EffectiveMapping(node)
+	if err != nil {
+		return v.positionError(node, path, errStrictYAMLAliasCycle)
+	}
+	for _, entry := range entries {
+		field, ok := lookup.Lookup(entry.Key.Value)
 		if !ok || field.YAMLDecodeKey == "-" {
 			return v.positionError(
-				keyNode,
-				joinStrictYAMLPath(path, keyNode.Value),
-				fmt.Errorf("unknown field %q", keyNode.Value),
+				entry.Key,
+				joinStrictYAMLPath(path, entry.Key.Value),
+				fmt.Errorf("unknown field %q", entry.Key.Value),
 			)
 		}
 
-		fieldPath := joinStrictYAMLPath(path, keyNode.Value)
-		if err := v.validate(valueNode, fieldPath, field.Type); err != nil {
+		fieldPath := joinStrictYAMLPath(path, entry.Key.Value)
+		if err := v.validate(entry.Value, fieldPath, field.Type); err != nil {
 			return err
 		}
 	}
@@ -188,18 +183,13 @@ func (v *strictYAMLValidator) validateMapMapping(
 	target reflect.Type,
 ) error {
 	valueType := target.Elem()
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		keyNode := node.Content[i]
-		if isStrictYAMLMergeKey(keyNode) {
-			if err := v.validateMerge(node.Content[i+1], path, target); err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		valuePath := joinStrictYAMLPath(path, keyNode.Value)
-		if err := v.validate(node.Content[i+1], valuePath, valueType); err != nil {
+	entries, err := nodeview.EffectiveMapping(node)
+	if err != nil {
+		return v.positionError(node, path, errStrictYAMLAliasCycle)
+	}
+	for _, entry := range entries {
+		valuePath := joinStrictYAMLPath(path, entry.Key.Value)
+		if err := v.validate(entry.Value, valuePath, valueType); err != nil {
 			return err
 		}
 	}
@@ -225,42 +215,6 @@ func (v *strictYAMLValidator) validateSequence(
 	}
 
 	return nil
-}
-
-// validateMerge validates one or more merge sources against the consumer type.
-func (v *strictYAMLValidator) validateMerge(
-	node *goyaml.Node,
-	path string,
-	target reflect.Type,
-) error {
-	if node == nil {
-		return nil
-	}
-
-	if node.Kind == goyaml.SequenceNode {
-		for _, source := range node.Content {
-			if err := v.validate(source, path, target); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	return v.validate(node, path, target)
-}
-
-// isStrictYAMLMergeKey recognizes the YAML merge key without reflection logic.
-func isStrictYAMLMergeKey(node *goyaml.Node) bool {
-	if node == nil || node.Value != "<<" {
-		return false
-	}
-
-	switch node.Tag {
-	case "", "!", "!!merge", "tag:yaml.org,2002:merge":
-		return true
-	default:
-		return false
-	}
 }
 
 // joinStrictYAMLPath appends one YAML key to a diagnostic path.
