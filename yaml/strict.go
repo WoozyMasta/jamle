@@ -5,10 +5,8 @@
 package yaml
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
 
@@ -36,27 +34,6 @@ func UnmarshalWithOptions(data []byte, v any, opts DecodeOptions) error {
 	}
 
 	return UnmarshalNodeWithOptions(root, v, opts)
-}
-
-// decodeSingleDocument parses one document and rejects a second document.
-func decodeSingleDocument(data []byte) (*goyaml.Node, error) {
-	var root goyaml.Node
-	dec := goyaml.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&root); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var extra goyaml.Node
-	if err := dec.Decode(&extra); err == nil {
-		return nil, ErrMultipleDocuments
-	} else if !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-
-	return &root, nil
 }
 
 // UnmarshalNodeWithOptions decodes a YAML node with the supplied options.

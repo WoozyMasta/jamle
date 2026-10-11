@@ -5,11 +5,8 @@
 package yaml
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strconv"
 
@@ -65,25 +62,21 @@ func JSONToYAML(j []byte) ([]byte, error) {
 //   - Distinct YAML map keys that stringify to the same JSON key are rejected.
 //   - YAML !!binary values are normalized to canonical base64 strings.
 func YAMLToJSON(y []byte) ([]byte, error) { //nolint:revive
-	dec := yaml.NewDecoder(bytes.NewReader(y))
+	root, err := decodeSingleDocument(y)
+	if err != nil {
+		return nil, err
+	}
 
-	return yamlToJSON(dec, nil)
+	return yamlToJSON(root, nil)
 }
 
-// yamlToJSON decodes one YAML document and converts it into JSON bytes.
-func yamlToJSON(dec *yaml.Decoder, jsonTarget *reflect.Value) ([]byte, error) {
-	// Decode into a node first so tagged binary scalars
-	// can be normalized before go-yaml converts them to a binary Go string.
-	var root yaml.Node
+// yamlToJSON converts one decoded YAML document into JSON bytes.
+func yamlToJSON(root *yaml.Node, jsonTarget *reflect.Value) ([]byte, error) {
 	var yamlObj any
-	if err := dec.Decode(&root); err != nil {
-		// Functionality changed in v3 which means we need to ignore EOF error.
-		// See https://github.com/go-yaml/yaml/issues/639
-		if !errors.Is(err, io.EOF) {
-			return nil, err
-		}
-	} else {
-		if err := normalizeBinaryScalars(&root); err != nil {
+	if root != nil {
+		// Normalize tagged binary scalars
+		// before go-yaml converts them to a binary Go string.
+		if err := normalizeBinaryScalars(root); err != nil {
 			return nil, err
 		}
 

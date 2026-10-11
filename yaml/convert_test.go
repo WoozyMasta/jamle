@@ -5,6 +5,7 @@
 package yaml
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -87,6 +88,33 @@ func TestYAMLToJSONDuplicateFields(t *testing.T) {
 	data := []byte("foo: bar\nfoo: baz\n")
 	if _, err := YAMLToJSON(data); err == nil {
 		t.Fatal("expected YAMLToJSON to fail on duplicate field names")
+	}
+}
+
+func TestYAMLToJSONRejectsMultipleDocuments(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"value: first\n---\nvalue: second\n",
+		"value: first\n---\n",
+	}
+	for _, input := range tests {
+		_, err := YAMLToJSON([]byte(input))
+		if !errors.Is(err, ErrMultipleDocuments) {
+			t.Fatalf("expected ErrMultipleDocuments, got: %v", err)
+		}
+	}
+}
+
+func TestYAMLToJSONEmptyInput(t *testing.T) {
+	t.Parallel()
+
+	got, err := YAMLToJSON(nil)
+	if err != nil {
+		t.Fatalf("YAMLToJSON returned error: %v", err)
+	}
+	if string(got) != "null" {
+		t.Fatalf("YAMLToJSON mismatch: got %q, want %q", string(got), "null")
 	}
 }
 

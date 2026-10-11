@@ -367,5 +367,6 @@ Caveats:
 * `YAMLToJSON` may fail for YAML maps
   with non-JSON-compatible keys (for example, complex/map keys)
   or when distinct keys normalize to the same JSON key.
-* `Unmarshal` rejects multi-document YAML streams
-  with `jamle.ErrMultipleDocuments`; use `UnmarshalAll` for streams.
+* Single-document APIs such as `Unmarshal` and `YAMLToJSON`
+  reject multi-document YAML streams with `jamle.ErrMultipleDocuments`.
+  Use `UnmarshalAll` for streams decoded into Go values.
