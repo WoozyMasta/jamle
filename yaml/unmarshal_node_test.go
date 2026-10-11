@@ -134,6 +134,31 @@ func TestUnmarshalNode_PreservesAnchorAliasGraph(t *testing.T) {
 	}
 }
 
+func TestUnmarshalNode_AliasUsesConsumerSchema(t *testing.T) {
+	t.Parallel()
+
+	type owner struct {
+		Value string `json:"value" yaml:"first_value"`
+	}
+	type consumer struct {
+		Value string `json:"value" yaml:"second_value"`
+	}
+	type sample struct {
+		Base   owner    `json:"base"`
+		First  owner    `json:"first"`
+		Second consumer `json:"second"`
+	}
+
+	input := []byte("base: &shared\n  value: ok\nfirst: *shared\nsecond: *shared\n")
+	var got sample
+	if err := Unmarshal(input, &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if got.Base.Value != "ok" || got.First.Value != "ok" || got.Second.Value != "ok" {
+		t.Fatalf("alias consumer mismatch: %#v", got)
+	}
+}
+
 func TestCloneNodeGraph_PreservesMetadataAndAliasIdentity(t *testing.T) {
 	t.Parallel()
 

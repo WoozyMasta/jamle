@@ -47,9 +47,61 @@ func unmarshalNode(root *goyaml.Node, o any) error {
 
 // remapJSONTagKeys rewrites mapping keys to match struct field names.
 func remapJSONTagKeys(n *goyaml.Node, target reflect.Type) {
+	remapper := jsonTagRemapper{
+		aliasSources: collectAliasSources(n),
+		active:       make(map[*goyaml.Node]bool),
+	}
+	remapper.remap(n, target)
+}
+
+// jsonTagRemapper applies JSON-tag mapping without sharing alias mutations.
+type jsonTagRemapper struct {
+	// aliasSources stores unmodified targets for each alias consumer.
+	aliasSources map[*goyaml.Node]*goyaml.Node
+	// active prevents recursive aliases from re-entering the same node.
+	active map[*goyaml.Node]bool
+}
+
+// collectAliasSources snapshots alias targets before any mapping key changes.
+func collectAliasSources(root *goyaml.Node) map[*goyaml.Node]*goyaml.Node {
+	var sources map[*goyaml.Node]*goyaml.Node
+
+	var collect func(*goyaml.Node)
+	collect = func(node *goyaml.Node) {
+		if node == nil {
+			return
+		}
+
+		if node.Kind == goyaml.AliasNode {
+			if node.Alias != nil {
+				if sources == nil {
+					sources = make(map[*goyaml.Node]*goyaml.Node)
+				}
+				sources[node] = cloneNodeGraph(node.Alias)
+			}
+			return
+		}
+
+		for _, child := range node.Content {
+			collect(child)
+		}
+	}
+
+	collect(root)
+
+	return sources
+}
+
+// remap rewrites one node and follows aliases using their consumer type.
+func (r *jsonTagRemapper) remap(n *goyaml.Node, target reflect.Type) {
 	if n == nil {
 		return
 	}
+	if r.active[n] {
+		return
+	}
+	r.active[n] = true
+	defer delete(r.active, n)
 
 	target = derefType(target)
 	if target == nil {
@@ -62,11 +114,24 @@ func remapJSONTagKeys(n *goyaml.Node, target reflect.Type) {
 	switch n.Kind {
 	case goyaml.DocumentNode:
 		if len(n.Content) > 0 {
-			remapJSONTagKeys(n.Content[0], target)
+			r.remap(n.Content[0], target)
 		}
 
+	case goyaml.AliasNode:
+		if n.Alias == nil {
+			return
+		}
+
+		alias := r.aliasSources[n]
+		if alias == nil {
+			r.remap(n.Alias, target)
+			return
+		}
+		n.Alias = cloneNodeGraph(alias)
+		r.remap(n.Alias, target)
+
 	case goyaml.MappingNode:
-		remapMappingNodeKeys(n, target)
+		r.remapMappingNodeKeys(n, target)
 
 	case goyaml.SequenceNode:
 		elem := target
@@ -79,16 +144,16 @@ func remapJSONTagKeys(n *goyaml.Node, target reflect.Type) {
 		}
 
 		for _, child := range n.Content {
-			remapJSONTagKeys(child, elem)
+			r.remap(child, elem)
 		}
 	}
 }
 
 // remapMappingNodeKeys remaps mapping keys for struct/map targets recursively.
-func remapMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
+func (r *jsonTagRemapper) remapMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 	switch target.Kind() {
 	case reflect.Struct:
-		remapStructMappingNodeKeys(n, target)
+		r.remapStructMappingNodeKeys(n, target)
 
 	case reflect.Map:
 		elem := derefType(target.Elem())
@@ -97,13 +162,13 @@ func remapMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 		}
 
 		for i := 1; i < len(n.Content); i += 2 {
-			remapJSONTagKeys(n.Content[i], elem)
+			r.remap(n.Content[i], elem)
 		}
 	}
 }
 
 // remapStructMappingNodeKeys remaps one struct mapping node by JSON tag rules.
-func remapStructMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
+func (r *jsonTagRemapper) remapStructMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 	lookup := schema.For(target)
 	promoted := make([]promotedMapping, 0)
 	seen := make(map[*goyaml.Node]bool)
@@ -121,7 +186,7 @@ func remapStructMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 
 		keyNode.Value = decodedField.YAMLDecodeKey
 		if len(decodedField.YAMLDecodePath) == 0 {
-			remapJSONTagKeys(valNode, decodedField.Type)
+			r.remap(valNode, decodedField.Type)
 			content = append(content, keyNode, valNode)
 			continue
 		}
@@ -147,7 +212,7 @@ func remapStructMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 
 	n.Content = content
 	for _, mapping := range promoted {
-		remapJSONTagKeys(mapping.node, mapping.target)
+		r.remap(mapping.node, mapping.target)
 	}
 }
 
