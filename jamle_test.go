@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	jyaml "github.com/woozymasta/jamle/yaml"
 )
 
 func TestUnmarshal_SubstitutionLogic(t *testing.T) {
@@ -690,6 +692,21 @@ host: ${A}
 			t.Fatalf("assignment docs mismatch: %#v", got)
 		}
 	})
+}
+
+func TestUnmarshalWithOptions_ValidatesDestinationBeforeExpansion(t *testing.T) {
+	resolver := mapResolverWithSet{values: map[string]string{}}
+	err := UnmarshalWithOptions(
+		[]byte("value: ${VALUE:=secret}\n"),
+		nil,
+		UnmarshalOptions{Resolver: resolver},
+	)
+	if !errors.Is(err, jyaml.ErrInvalidDestination) {
+		t.Fatalf("UnmarshalWithOptions error: got %v, want ErrInvalidDestination", err)
+	}
+	if _, ok := resolver.values["VALUE"]; ok {
+		t.Fatalf("invalid destination caused assignment: %#v", resolver.values)
+	}
 }
 
 func TestUnmarshalAllWithOptions_NegativeTable(t *testing.T) {

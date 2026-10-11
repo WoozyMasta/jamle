@@ -41,6 +41,9 @@ func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := validateUnmarshalDestination(v); err != nil {
+		return err
+	}
 
 	return processDocument(root, v, reflect.TypeOf(v), resolvedOpts, containsVars, opts.Strict)
 }
@@ -166,6 +169,20 @@ func parseDocument(data []byte) (*goyaml.Node, error) {
 	}
 
 	return &root, nil
+}
+
+// validateUnmarshalDestination rejects targets that cannot receive decoded data.
+func validateUnmarshalDestination(target any) error {
+	if target == nil {
+		return jyaml.ErrInvalidDestination
+	}
+
+	value := reflect.ValueOf(target)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return jyaml.ErrInvalidDestination
+	}
+
+	return nil
 }
 
 // processDocument applies expansion and then decodes one parsed YAML document.
