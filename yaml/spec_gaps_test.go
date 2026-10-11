@@ -82,20 +82,18 @@ func TestSpec_TimestampTag(t *testing.T) {
 	}
 }
 
-func TestSpec_BinaryTagLossyInYAMLToJSON(t *testing.T) {
+func TestSpec_BinaryTagCanonicalInYAMLToJSON(t *testing.T) {
 	t.Parallel()
 
 	out, err := YAMLToJSON([]byte("a: !!binary gIGC\n"))
 	if err != nil {
 		t.Fatalf("YAMLToJSON returned error: %v", err)
 	}
-	// Binary content is currently not preserved through JSON conversion. The
-	// JSON encoder may represent replacement runes as UTF-8 or \u escapes.
 	var decoded map[string]string
 	if err := json.Unmarshal(out, &decoded); err != nil {
 		t.Fatalf("YAMLToJSON produced invalid JSON: %v", err)
 	}
-	if decoded["a"] != "\ufffd\ufffd\ufffd" {
+	if decoded["a"] != "gIGC" {
 		t.Fatalf("unexpected !!binary conversion value: %q", decoded["a"])
 	}
 }

@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning][].
   use shared schema metadata and effective paths
   through YAML aliases and merges.
 
+### Fixed
+
+* `YAMLToJSON` preserves `!!binary` payloads as canonical base64 strings.
+
 [0.4.0]: https://github.com/WoozyMasta/jamle/compare/v0.3.0...v0.4.0
 
 ## [0.3.0][] - 2026-04-10

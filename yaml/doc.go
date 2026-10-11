@@ -17,7 +17,6 @@ and [MarshalWith] add format-aware file I/O and output options.
 [Unmarshal] decodes exactly one document
 and returns [ErrMultipleDocuments] when the input contains more than one.
 Use `jamle.UnmarshalAll` in the parent package when multiple documents must be decoded.
-YAML `!!binary` values are not preserved losslessly by [YAMLToJSON];
-use ordinary base64 text when the encoded payload must survive JSON conversion.
+YAML `!!binary` values are normalized to canonical base64 strings by [YAMLToJSON].
 */
 package yaml

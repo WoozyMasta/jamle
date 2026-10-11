@@ -62,10 +62,7 @@ func JSONToYAML(j []byte) ([]byte, error) {
 // Things YAML can do that are not supported by JSON:
 //   - In YAML you can have binary and null keys in your maps.
 //     These are invalid in JSON. (int and float keys are converted to strings.)
-//   - Binary data in YAML with the !!binary tag is not supported.
-//     If you want to use binary data with this library,
-//     encode the data as base64 as usual but do not use the !!binary tag in your YAML.
-//     This will ensure the original base64 encoded data makes it all the way through to the JSON.
+//   - YAML !!binary values are normalized to canonical base64 strings.
 func YAMLToJSON(y []byte) ([]byte, error) { //nolint:revive
 	dec := yaml.NewDecoder(bytes.NewReader(y))
 
@@ -74,12 +71,22 @@ func YAMLToJSON(y []byte) ([]byte, error) { //nolint:revive
 
 // yamlToJSON decodes one YAML document and converts it into JSON bytes.
 func yamlToJSON(dec *yaml.Decoder, jsonTarget *reflect.Value) ([]byte, error) {
-	// Convert the YAML to an object.
+	// Decode into a node first so tagged binary scalars
+	// can be normalized before go-yaml converts them to a binary Go string.
+	var root yaml.Node
 	var yamlObj any
-	if err := dec.Decode(&yamlObj); err != nil {
+	if err := dec.Decode(&root); err != nil {
 		// Functionality changed in v3 which means we need to ignore EOF error.
 		// See https://github.com/go-yaml/yaml/issues/639
 		if !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+	} else {
+		if err := normalizeBinaryScalars(&root); err != nil {
+			return nil, err
+		}
+
+		if err := root.Decode(&yamlObj); err != nil {
 			return nil, err
 		}
 	}

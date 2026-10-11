@@ -362,8 +362,8 @@ _ = out
 
 Caveats:
 
-* `!!binary` is not preserved losslessly through `YAMLToJSON` conversion.
-  Prefer plain base64 strings without the `!!binary` tag.
+* `!!binary` values are normalized to canonical base64 strings
+  through `YAMLToJSON` conversion.
 * `YAMLToJSON` may fail for YAML maps with non-JSON-compatible keys
   (for example, complex/map keys).
 * `Unmarshal` rejects multi-document YAML streams
