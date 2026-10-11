@@ -6,6 +6,7 @@ package yamlnode
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	goyaml "go.yaml.in/yaml/v3"
@@ -49,4 +50,38 @@ result:
 			t.Fatalf("effective mapping value mismatch for %q: got %q, want %q", key, got[key], value)
 		}
 	}
+}
+
+// BenchmarkEffectiveMappingNoMerge measures the ordinary mapping fast path.
+func BenchmarkEffectiveMappingNoMerge(b *testing.B) {
+	for _, size := range []int{1000, 10000} {
+		b.Run(fmt.Sprintf("entries-%d", size), func(b *testing.B) {
+			root := plainMapping(size)
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				entries, err := EffectiveMapping(root)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(entries) != size {
+					b.Fatalf("entry count mismatch: got %d, want %d", len(entries), size)
+				}
+			}
+		})
+	}
+}
+
+// plainMapping builds a mapping without merge keys for benchmarks.
+func plainMapping(size int) *goyaml.Node {
+	content := make([]*goyaml.Node, 0, size*2)
+	for index := 0; index < size; index++ {
+		content = append(content,
+			&goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!str", Value: fmt.Sprintf("key%d", index)},
+			&goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!str", Value: "value"},
+		)
+	}
+
+	return &goyaml.Node{Kind: goyaml.MappingNode, Content: content}
 }

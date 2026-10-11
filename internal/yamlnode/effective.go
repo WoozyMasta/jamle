@@ -75,6 +75,23 @@ func effectiveMapping(root *goyaml.Node, active map[*goyaml.Node]bool) ([]Mappin
 		return nil, nil
 	}
 
+	rawEntries := make([]MappingEntry, 0, len(node.Content)/2)
+	hasMerge := false
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		key := node.Content[index]
+		if IsMergeKey(key) {
+			hasMerge = true
+		}
+
+		rawEntries = append(rawEntries, MappingEntry{
+			Key:   key,
+			Value: node.Content[index+1],
+		})
+	}
+	if !hasMerge {
+		return rawEntries, nil
+	}
+
 	entries := make([]MappingEntry, 0, len(node.Content)/2)
 	add := func(entry MappingEntry, override bool) {
 		for index, existing := range entries {
@@ -89,9 +106,9 @@ func effectiveMapping(root *goyaml.Node, active map[*goyaml.Node]bool) ([]Mappin
 		entries = append(entries, entry)
 	}
 
-	for index := 0; index+1 < len(node.Content); index += 2 {
-		key := node.Content[index]
-		value := node.Content[index+1]
+	for _, rawEntry := range rawEntries {
+		key := rawEntry.Key
+		value := rawEntry.Value
 		if IsMergeKey(key) {
 			if value.Kind == goyaml.SequenceNode {
 				for _, source := range value.Content {
