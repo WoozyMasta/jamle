@@ -30,6 +30,10 @@ func Unmarshal(data []byte, v any) error {
 
 // UnmarshalWithOptions parses YAML and expands ${...} using [UnmarshalOptions].
 func UnmarshalWithOptions(data []byte, v any, opts UnmarshalOptions) error {
+	if err := validateMaxDepth(opts.MaxDepth); err != nil {
+		return err
+	}
+
 	containsVars := bytes.Contains(data, []byte("${"))
 	// Direct decoding is safe only when no expansion and no strict validation is requested.
 	if !containsVars && !opts.Strict && (opts.DisableDefaults || !hasDefaults(reflect.TypeOf(v))) {
@@ -63,6 +67,9 @@ func UnmarshalAllWithOptions(data []byte, out any, opts UnmarshalOptions) error 
 	}
 	if outValue.Kind() != reflect.Pointer || outValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("%w, got %T", ErrOutMustBePointerToSlice, out)
+	}
+	if err := validateMaxDepth(opts.MaxDepth); err != nil {
+		return err
 	}
 
 	sliceValue := outValue.Elem()
@@ -180,6 +187,20 @@ func validateUnmarshalDestination(target any) error {
 	value := reflect.ValueOf(target)
 	if value.Kind() != reflect.Pointer || value.IsNil() {
 		return jyaml.ErrInvalidDestination
+	}
+
+	return nil
+}
+
+// validateMaxDepth rejects expansion limits above the supported hard bound.
+func validateMaxDepth(maxDepth int) error {
+	if maxDepth > maxAllowedDepth {
+		return fmt.Errorf(
+			"%w: %d exceeds maximum %d",
+			ErrInvalidMaxDepth,
+			maxDepth,
+			maxAllowedDepth,
+		)
 	}
 
 	return nil

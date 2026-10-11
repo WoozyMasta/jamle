@@ -8,9 +8,13 @@ import (
 	"os"
 )
 
-// defaultMaxDepth bounds nested syntax and recursive resolver expansion
-// when [UnmarshalOptions.MaxDepth] is not set.
-const defaultMaxDepth = 32
+const (
+	// defaultMaxDepth bounds nested syntax and recursive resolver expansion
+	// when [UnmarshalOptions.MaxDepth] is not set.
+	defaultMaxDepth = 32
+	// maxAllowedDepth is the hard upper bound for public expansion options.
+	maxAllowedDepth = 1000
+)
 
 // AssignmentMode controls side effects of ${VAR:=word} expansions.
 type AssignmentMode uint8

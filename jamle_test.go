@@ -709,6 +709,21 @@ func TestUnmarshalWithOptions_ValidatesDestinationBeforeExpansion(t *testing.T) 
 	}
 }
 
+func TestUnmarshalOptions_RejectsExcessiveMaxDepth(t *testing.T) {
+	t.Parallel()
+
+	options := UnmarshalOptions{MaxDepth: maxAllowedDepth + 1}
+	var value struct{}
+	if err := UnmarshalWithOptions([]byte("{}\n"), &value, options); !errors.Is(err, ErrInvalidMaxDepth) {
+		t.Fatalf("UnmarshalWithOptions error: got %v, want ErrInvalidMaxDepth", err)
+	}
+
+	var all []struct{}
+	if err := UnmarshalAllWithOptions([]byte("---\n{}\n"), &all, options); !errors.Is(err, ErrInvalidMaxDepth) {
+		t.Fatalf("UnmarshalAllWithOptions error: got %v, want ErrInvalidMaxDepth", err)
+	}
+}
+
 func TestUnmarshalAllWithOptions_NegativeTable(t *testing.T) {
 	tests := []struct {
 		name    string

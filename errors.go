@@ -21,6 +21,8 @@ var (
 	ErrExpansionCycle = errors.New("environment expansion cycle")
 	// ErrExpansionDepth is returned when expansion exceeds [UnmarshalOptions.MaxDepth].
 	ErrExpansionDepth = errors.New("environment expansion depth exceeded")
+	// ErrInvalidMaxDepth is returned when [UnmarshalOptions.MaxDepth] exceeds the hard limit.
+	ErrInvalidMaxDepth = errors.New("invalid maximum expansion depth")
 	// ErrExpansionSyntax is kept as a compatibility alias for [ErrInvalidExpansion].
 	ErrExpansionSyntax = ErrInvalidExpansion
 	// ErrRequiredVariable is returned when a required variable is unset or empty.
