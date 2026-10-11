@@ -1,11 +1,11 @@
 # jamle
 
 **jamle** (**J**SON **A**nd Y**AML** with **E**nv)
-provides a unified, powerful way to unmarshal YAML and JSON data
-with Bash-style environment variable expansion in Go.
+is a Go library for JSON-tag-aware YAML/JSON decoding
+with recursive Bash-style environment variable expansion
+and source-aware `default` tags.
 
-It includes a JSON-tag-aware YAML codec,
-so one set of struct tags works for both formats.
+It also includes a small auxiliary CLI for basic configuration processing.
 
 ## Key Benefits
 
@@ -16,6 +16,9 @@ so one set of struct tags works for both formats.
   * `jamle` YAML decoding is JSON-tag-aware, so it respects
     standard **`json` struct tags**.
   * One struct works for JSON and YAML inputs.
+* **Source-aware Defaults:**
+  `default` struct tags apply only when a field is absent from the source,
+  so explicit zero values and `null` remain unchanged.
 
 ## Why use jamle
 
