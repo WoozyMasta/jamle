@@ -55,9 +55,9 @@ type expansionEvaluator struct {
 	setter Setter
 	// envCache avoids repeated lookups within one scalar expansion.
 	envCache map[string]envLookup
-	// active marks variables currently being evaluated.
+	// active marks resolver values currently being evaluated.
 	active map[string]bool
-	// stack preserves the evaluation path for cycle diagnostics.
+	// stack preserves the resolver evaluation path for cycle diagnostics.
 	stack []string
 	// opts contains the normalized resolver and expansion policies.
 	opts runtimeOptions
@@ -637,18 +637,6 @@ func (e *expansionEvaluator) evaluateExpression(
 		return "", fmt.Errorf("%w: maximum depth %d exceeded", ErrExpansionDepth, e.opts.maxDepth)
 	}
 
-	if e.active[expression.name] {
-		cycle := append(append([]string(nil), e.stack...), expression.name)
-		return "", fmt.Errorf("%w: %s", ErrExpansionCycle, strings.Join(cycle, " -> "))
-	}
-
-	e.active[expression.name] = true
-	e.stack = append(e.stack, expression.name)
-	defer func() {
-		delete(e.active, expression.name)
-		e.stack = e.stack[:len(e.stack)-1]
-	}()
-
 	value, exists := e.lookup(expression.name)
 	switch expression.operator {
 	case 0:
@@ -656,12 +644,12 @@ func (e *expansionEvaluator) evaluateExpression(
 		if !exists {
 			return "", nil
 		}
-		return e.evaluateResolvedValue(value, depth)
+		return e.evaluateResolvedValue(expression.name, value, depth)
 
 	case '-':
 		// Use the word only for an unset or empty variable.
 		if exists && value != "" {
-			return e.evaluateResolvedValue(value, depth)
+			return e.evaluateResolvedValue(expression.name, value, depth)
 		}
 		return e.evaluateTemplate(expression.word, depth+1)
 
@@ -669,7 +657,7 @@ func (e *expansionEvaluator) evaluateExpression(
 		// := shares the :- fallback decision,
 		// then optionally persists the resolved fallback through Setter.
 		if exists && value != "" {
-			return e.evaluateResolvedValue(value, depth)
+			return e.evaluateResolvedValue(expression.name, value, depth)
 		}
 
 		resolved, err := e.evaluateTemplate(expression.word, depth+1)
@@ -693,13 +681,13 @@ func (e *expansionEvaluator) evaluateExpression(
 		// A required expression checks the value before evaluating its diagnostic word,
 		// preserving lazy error branches.
 		if exists && value != "" {
-			return e.evaluateResolvedValue(value, depth)
+			return e.evaluateResolvedValue(expression.name, value, depth)
 		}
 		if !e.opts.enforceRequired {
 			if !exists {
 				return "", nil
 			}
-			return e.evaluateResolvedValue(value, depth)
+			return e.evaluateResolvedValue(expression.name, value, depth)
 		}
 
 		message, err := e.evaluateTemplate(expression.word, depth+1)
@@ -718,15 +706,30 @@ func (e *expansionEvaluator) evaluateExpression(
 		if !exists {
 			return "", nil
 		}
-		return e.evaluateResolvedValue(value, depth)
+		return e.evaluateResolvedValue(expression.name, value, depth)
 	}
 }
 
 // evaluateResolvedValue recursively expands resolver values when needed.
-func (e *expansionEvaluator) evaluateResolvedValue(value string, depth int) (string, error) {
+func (e *expansionEvaluator) evaluateResolvedValue(
+	name string,
+	value string,
+	depth int,
+) (string, error) {
 	if !strings.Contains(value, "${") {
 		return value, nil
 	}
+	if e.active[name] {
+		cycle := append(append([]string(nil), e.stack...), name)
+		return "", fmt.Errorf("%w: %s", ErrExpansionCycle, strings.Join(cycle, " -> "))
+	}
+
+	e.active[name] = true
+	e.stack = append(e.stack, name)
+	defer func() {
+		delete(e.active, name)
+		e.stack = e.stack[:len(e.stack)-1]
+	}()
 
 	segments, err := parseExpansionTemplate(value, e.opts.maxDepth)
 	if err != nil {

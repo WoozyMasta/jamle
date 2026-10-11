@@ -124,11 +124,36 @@ func TestExpandEnvInScalar_LazyBranches(t *testing.T) {
 func TestExpandEnvInScalar_RecursiveValuesAndCycles(t *testing.T) {
 	t.Parallel()
 
-	resolver := expansionTestResolver{values: map[string]string{
+	resolver := expansionTestResolver{values: map[string]string{}}
+	got, err := expandEnvInScalar("${A:-${A:-x}}", runtimeOptions{
+		resolver:        resolver,
+		maxDepth:        defaultMaxDepth,
+		allowAssignment: true,
+		enforceRequired: true,
+	})
+	if err != nil || got != "x" {
+		t.Fatalf("same-name fallback mismatch: got %q, err %v", got, err)
+	}
+
+	resolver = expansionTestResolver{values: map[string]string{}}
+	got, err = expandEnvInScalar("${A:=${A:-x}}", runtimeOptions{
+		resolver:        resolver,
+		maxDepth:        defaultMaxDepth,
+		allowAssignment: true,
+		enforceRequired: true,
+	})
+	if err != nil || got != "x" {
+		t.Fatalf("same-name assignment fallback mismatch: got %q, err %v", got, err)
+	}
+	if resolver.values["A"] != "x" {
+		t.Fatalf("same-name assignment fallback did not set A: got %q", resolver.values["A"])
+	}
+
+	resolver = expansionTestResolver{values: map[string]string{
 		"A": "${B}",
 		"B": "value",
 	}}
-	got, err := expandEnvInScalar("${A}", runtimeOptions{
+	got, err = expandEnvInScalar("${A}", runtimeOptions{
 		resolver:        resolver,
 		maxDepth:        defaultMaxDepth,
 		allowAssignment: true,
