@@ -132,6 +132,27 @@ func TestUnmarshalWithOptions_StrictYAMLAliasAndMerge(t *testing.T) {
 	}
 }
 
+func TestUnmarshalWithOptions_StrictYAMLMapMerge(t *testing.T) {
+	t.Parallel()
+
+	type item struct {
+		Name string `json:"name"`
+	}
+	type config struct {
+		Base  map[string]item `json:"base"`
+		Items map[string]item `json:"items"`
+	}
+
+	input := []byte("base: &shared\n  arbitrary:\n    name: ok\nitems:\n  <<: *shared\n")
+	var got config
+	if err := UnmarshalWithOptions(input, &got, DecodeOptions{Strict: true}); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+	if got.Items["arbitrary"].Name != "ok" {
+		t.Fatalf("merged map value mismatch: %#v", got.Items)
+	}
+}
+
 func TestUnmarshalWithOptions_StrictJSON(t *testing.T) {
 	t.Parallel()
 

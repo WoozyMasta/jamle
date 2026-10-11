@@ -186,6 +186,14 @@ func (v *strictYAMLValidator) validateMapMapping(
 	valueType := target.Elem()
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		keyNode := node.Content[i]
+		if isStrictYAMLMergeKey(keyNode) {
+			if err := v.validateMerge(node.Content[i+1], path, target); err != nil {
+				return err
+			}
+
+			continue
+		}
+
 		valuePath := joinStrictYAMLPath(path, keyNode.Value)
 		if err := v.validate(node.Content[i+1], valuePath, valueType); err != nil {
 			return err
