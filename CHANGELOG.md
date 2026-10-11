@@ -47,8 +47,6 @@ and this project adheres to [Semantic Versioning][].
 * `YAMLToJSON` preserves `!!binary` payloads as canonical base64 strings.
 * `YAMLToJSON` rejects lossy map key conversions after stringification.
 * `YAMLToJSON` rejects multi-document YAML input.
-* JSON-tag remapping now applies to merge sources per alias consumer.
-* Case-insensitive schema lookup now keeps the first matching field.
 
 [0.4.0]: https://github.com/WoozyMasta/jamle/compare/v0.3.0...v0.4.0
 

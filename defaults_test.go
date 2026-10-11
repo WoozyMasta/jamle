@@ -245,6 +245,25 @@ func TestUnmarshalWithOptions_DefaultsSkipRecursiveAndSpecialTypes(t *testing.T)
 	}
 }
 
+func TestUnmarshalWithOptions_DefaultsSkipPromotedFields(t *testing.T) {
+	t.Parallel()
+
+	type embedded struct {
+		Port int `json:"port" default:"8080"`
+	}
+	type config struct {
+		embedded `default:"-"`
+	}
+
+	var got config
+	if err := Unmarshal([]byte("{}\n"), &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if got.Port != 0 {
+		t.Fatalf("promoted default was applied below default skip: %#v", got)
+	}
+}
+
 func TestParseDefaultNodeCacheIsolated(t *testing.T) {
 	t.Parallel()
 

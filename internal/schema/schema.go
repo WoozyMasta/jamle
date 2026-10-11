@@ -478,6 +478,7 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 
 	yamlKey := yamlDecodeKey(sf)
 	defaultValue, hasDefault := sf.Tag.Lookup("default")
+	skipDefaults := hasSkipDefaultsOption(root, discovered.index)
 
 	return Field{
 		Index:          append([]int(nil), discovered.index...),
@@ -487,8 +488,8 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 		YAMLDecodePath: yamlDecodePath(root, discovered.index),
 		NoExpand:       hasNoExpandOption(root, discovered.index),
 		Default:        defaultValue,
-		HasDefault:     hasDefault && defaultValue != "-",
-		SkipDefaults:   defaultValue == "-",
+		HasDefault:     hasDefault && defaultValue != "-" && !skipDefaults,
+		SkipDefaults:   skipDefaults,
 		Opaque:         IsOpaque(sf.Type),
 	}
 }
@@ -535,6 +536,26 @@ func hasNoExpandOption(root reflect.Type, index []int) bool {
 
 		field := current.Field(fieldIndex)
 		if tagOptions(field.Tag.Get("jamle")).contains("noexpand") {
+			return true
+		}
+
+		current = field.Type
+	}
+
+	return false
+}
+
+// hasSkipDefaultsOption reports whether a field or ancestor disables defaults.
+func hasSkipDefaultsOption(root reflect.Type, index []int) bool {
+	current := root
+	for _, fieldIndex := range index {
+		current = dereference(current)
+		if current == nil || current.Kind() != reflect.Struct {
+			return false
+		}
+
+		field := current.Field(fieldIndex)
+		if field.Tag.Get("default") == "-" {
 			return true
 		}
 
