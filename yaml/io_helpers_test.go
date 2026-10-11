@@ -244,6 +244,32 @@ func TestWriteFileAndMarshalWith(t *testing.T) {
 			t.Fatalf("new content missing: %q", string(raw))
 		}
 	})
+
+	t.Run("preserve existing mode when implicit", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		if err := os.WriteFile(path, []byte("old: true\n"), 0o600); err != nil {
+			t.Fatalf("setup write failed: %v", err)
+		}
+
+		before, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat before write failed: %v", err)
+		}
+		if err := WriteFile(path, input, WriteOptions{Format: FormatYAML}); err != nil {
+			t.Fatalf("WriteFile returned error: %v", err)
+		}
+
+		after, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after write failed: %v", err)
+		}
+		if after.Mode().Perm() != before.Mode().Perm() {
+			t.Fatalf("file mode changed: got %o, want %o", after.Mode().Perm(), before.Mode().Perm())
+		}
+	})
 }
 
 func TestInvalidFormat(t *testing.T) {

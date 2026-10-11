@@ -95,10 +95,26 @@ func WriteFile(path string, v any, opts WriteOptions) error {
 
 	perm := opts.Perm
 	if perm == 0 {
-		perm = 0o644
+		perm, err = defaultWritePerm(path)
+		if err != nil {
+			return err
+		}
 	}
 
 	return writeFileAtomic(path, data, perm)
+}
+
+// defaultWritePerm preserves an existing file mode or returns the new-file mode.
+func defaultWritePerm(path string) (os.FileMode, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.Mode().Perm(), nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+
+	return 0o644, nil
 }
 
 // UnmarshalAuto decodes JSON or YAML based on [AutoOptions] and path/content heuristics.
