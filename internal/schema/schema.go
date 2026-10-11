@@ -143,6 +143,26 @@ func IsOpaque(t reflect.Type) bool {
 	return implementsDecoder(t) || implementsDecoder(reflect.PointerTo(t))
 }
 
+// IsTextUnmarshaler reports whether t owns scalar decoding through encoding.TextUnmarshaler.
+func IsTextUnmarshaler(t reflect.Type) bool {
+	t = dereference(t)
+	if t == nil {
+		return false
+	}
+
+	return implementsTextUnmarshaler(t) || implementsTextUnmarshaler(reflect.PointerTo(t))
+}
+
+// IsYAMLUnmarshaler reports whether t owns node decoding through yaml.Unmarshaler.
+func IsYAMLUnmarshaler(t reflect.Type) bool {
+	t = dereference(t)
+	if t == nil {
+		return false
+	}
+
+	return implementsYAMLUnmarshaler(t) || implementsYAMLUnmarshaler(reflect.PointerTo(t))
+}
+
 // buildInfo discovers fields and derives lookup metadata for t.
 func buildInfo(t reflect.Type) *Info {
 	if t.Kind() != reflect.Struct {
@@ -547,5 +567,15 @@ func dereference(t reflect.Type) reflect.Type {
 
 // implementsDecoder checks both node and scalar decode interfaces.
 func implementsDecoder(t reflect.Type) bool {
-	return t.Implements(yamlUnmarshalerType) || t.Implements(textUnmarshalerType)
+	return implementsYAMLUnmarshaler(t) || implementsTextUnmarshaler(t)
+}
+
+// implementsYAMLUnmarshaler checks whether t implements node decoding.
+func implementsYAMLUnmarshaler(t reflect.Type) bool {
+	return t.Implements(yamlUnmarshalerType)
+}
+
+// implementsTextUnmarshaler checks whether t implements scalar text decoding.
+func implementsTextUnmarshaler(t reflect.Type) bool {
+	return t.Implements(textUnmarshalerType)
 }

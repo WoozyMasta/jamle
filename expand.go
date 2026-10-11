@@ -110,7 +110,12 @@ func (t *logicalNodeTransformer) transform(
 	defer delete(t.active, n)
 
 	target = dereferenceExpansionType(target)
-	if schema.IsOpaque(target) {
+	if schema.IsOpaque(target) &&
+		(!schema.IsTextUnmarshaler(target) ||
+			schema.IsYAMLUnmarshaler(target) ||
+			n.Kind != goyaml.ScalarNode) {
+		// Text unmarshallers consume scalar text after expansion;
+		// node-owned decoders still receive an untouched subtree.
 		cloned, err := cloneOpaqueGraph(n)
 		if err != nil {
 			return nil, newExpansionSourceError(path, n.Line, n.Column, err)

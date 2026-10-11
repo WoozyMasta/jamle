@@ -165,6 +165,12 @@ func TestForMetadataAndOpaqueBoundaries(t *testing.T) {
 		!IsOpaque(reflect.TypeFor[schemaOpaqueText]()) {
 		t.Fatal("decode interface classification failed")
 	}
+	if !IsTextUnmarshaler(reflect.TypeFor[schemaOpaqueText]()) {
+		t.Fatal("text decoder classification failed")
+	}
+	if !IsYAMLUnmarshaler(reflect.TypeFor[schemaOpaqueYAML]()) {
+		t.Fatal("YAML decoder classification failed")
+	}
 }
 
 func TestForCachesImmutableMetadata(t *testing.T) {

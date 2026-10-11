@@ -371,6 +371,29 @@ func TestUnmarshalWithOptions_CustomResolver(t *testing.T) {
 	})
 }
 
+func TestUnmarshalWithOptions_ExpandsTextUnmarshaler(t *testing.T) {
+	type config struct {
+		At time.Time `json:"at"`
+	}
+
+	resolver := mapResolver{values: map[string]string{
+		"WHEN": "2026-10-11T12:34:56Z",
+	}}
+	var got config
+	if err := UnmarshalWithOptions(
+		[]byte("at: ${WHEN}\n"),
+		&got,
+		UnmarshalOptions{Resolver: resolver},
+	); err != nil {
+		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+	}
+
+	want := time.Date(2026, time.October, 11, 12, 34, 56, 0, time.UTC)
+	if !got.At.Equal(want) {
+		t.Fatalf("time value mismatch: got %s, want %s", got.At, want)
+	}
+}
+
 func TestUnmarshalWithOptions(t *testing.T) {
 	type cfg struct {
 		A string `json:"a"`
