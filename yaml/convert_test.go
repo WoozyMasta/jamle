@@ -4,7 +4,10 @@
 
 package yaml
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 type conversionCase struct {
 	name    string
@@ -98,6 +101,66 @@ func TestYAMLToJSON_Uint64MapKey(t *testing.T) {
 
 	if string(got) != `{"18446744073709551615":"a"}` {
 		t.Fatalf("YAMLToJSON mismatch:\n got: %q\nwant: %q", string(got), `{"18446744073709551615":"a"}`)
+	}
+}
+
+func TestYAMLToJSONRejectsNormalizedMapKeyCollision(t *testing.T) {
+	t.Parallel()
+
+	_, err := YAMLToJSON([]byte("1: integer\n1.0: float\n"))
+	if err == nil {
+		t.Fatal("expected map key collision error")
+	}
+	if !strings.Contains(err.Error(), "map key collision") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConvertToJSONableObjectRejectsMapKeyCollisions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   map[any]any
+	}{
+		{
+			name: "integer and string",
+			in:   map[any]any{1: "integer", "1": "string"},
+		},
+		{
+			name: "boolean and string",
+			in:   map[any]any{true: "boolean", "true": "string"},
+		},
+		{
+			name: "float and string",
+			in:   map[any]any{float64(1e+36): "float", "1e+36": "string"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := convertToJSONableObject(test.in, nil)
+			if err == nil {
+				t.Fatal("expected map key collision error")
+			}
+			if !strings.Contains(err.Error(), "map key collision") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestYAMLToJSONAllowsDistinctNumericMapKeys(t *testing.T) {
+	t.Parallel()
+
+	got, err := YAMLToJSON([]byte("1: one\n2: two\n"))
+	if err != nil {
+		t.Fatalf("YAMLToJSON returned error: %v", err)
+	}
+	if string(got) != `{"1":"one","2":"two"}` {
+		t.Fatalf("YAMLToJSON mismatch:\n got: %q\nwant: %q", string(got), `{"1":"one","2":"two"}`)
 	}
 }
 

@@ -364,7 +364,8 @@ Caveats:
 
 * `!!binary` values are normalized to canonical base64 strings
   through `YAMLToJSON` conversion.
-* `YAMLToJSON` may fail for YAML maps with non-JSON-compatible keys
-  (for example, complex/map keys).
+* `YAMLToJSON` may fail for YAML maps
+  with non-JSON-compatible keys (for example, complex/map keys)
+  or when distinct keys normalize to the same JSON key.
 * `Unmarshal` rejects multi-document YAML streams
   with `jamle.ErrMultipleDocuments`; use `UnmarshalAll` for streams.

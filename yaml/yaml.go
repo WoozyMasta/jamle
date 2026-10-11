@@ -62,6 +62,7 @@ func JSONToYAML(j []byte) ([]byte, error) {
 // Things YAML can do that are not supported by JSON:
 //   - In YAML you can have binary and null keys in your maps.
 //     These are invalid in JSON. (int and float keys are converted to strings.)
+//   - Distinct YAML map keys that stringify to the same JSON key are rejected.
 //   - YAML !!binary values are normalized to canonical base64 strings.
 func YAMLToJSON(y []byte) ([]byte, error) { //nolint:revive
 	dec := yaml.NewDecoder(bytes.NewReader(y))
@@ -148,11 +149,23 @@ func normalizeYAMLMapKeys(yamlObj any) (any, error) {
 	}
 
 	strMap := make(map[string]any, len(typed))
+	originalKeys := make(map[string]any, len(typed))
 	for k, v := range typed {
 		key, err := stringifyYAMLMapKey(k, v)
 		if err != nil {
 			return nil, err
 		}
+
+		if previous, exists := originalKeys[key]; exists {
+			return nil, fmt.Errorf(
+				"yaml: map key collision after JSON string conversion for %q (%T and %T)",
+				key,
+				previous,
+				k,
+			)
+		}
+
+		originalKeys[key] = k
 		strMap[key] = v
 	}
 
