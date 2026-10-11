@@ -110,6 +110,19 @@ func TestForTaggedFieldWins(t *testing.T) {
 	}
 }
 
+func TestForAcceptsJSONTagPunctuation(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		Value string `json:"value;with:semicolon"`
+	}
+
+	field, ok := For(reflect.TypeFor[config]()).Lookup("value;with:semicolon")
+	if !ok || field.JSONName != "value;with:semicolon" {
+		t.Fatalf("semicolon JSON tag was not accepted: %#v, %t", field, ok)
+	}
+}
+
 func TestForYAMLDecodePathForPromotedFields(t *testing.T) {
 	type config struct {
 		schemaEmbedded

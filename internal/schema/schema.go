@@ -592,7 +592,7 @@ func validTagName(name string) bool {
 	}
 
 	for _, char := range name {
-		if strings.ContainsRune("!#$%&()*+-./:<=>?@[]^_{|}~ ", char) {
+		if strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", char) {
 			continue
 		}
 		if !unicode.IsLetter(char) && !unicode.IsDigit(char) {
