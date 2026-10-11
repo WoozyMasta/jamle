@@ -43,6 +43,21 @@ func TestJSONToYAML(t *testing.T) {
 	runConversionCases(t, runJSONToYAML, cases)
 }
 
+func TestJSONToYAMLRejectsNonJSONSyntax(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{
+		"{a: b}",
+		`{"a":1} trailing`,
+		"",
+	} {
+		_, err := JSONToYAML([]byte(input))
+		if err == nil {
+			t.Fatalf("JSONToYAML accepted invalid JSON %q", input)
+		}
+	}
+}
+
 func TestYAMLToJSON(t *testing.T) {
 	t.Parallel()
 

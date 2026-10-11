@@ -37,6 +37,11 @@ func Unmarshal(y []byte, o any) error {
 
 // JSONToYAML converts JSON to YAML while preserving JSON number types.
 func JSONToYAML(j []byte) ([]byte, error) {
+	var raw json.RawMessage
+	if err := json.Unmarshal(j, &raw); err != nil {
+		return nil, err
+	}
+
 	// Convert the JSON to an object.
 	var jsonObj any
 	// We are using yaml.Unmarshal here (instead of json.Unmarshal)
