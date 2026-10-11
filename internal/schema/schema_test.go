@@ -5,6 +5,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -120,6 +121,42 @@ func TestForAcceptsJSONTagPunctuation(t *testing.T) {
 	field, ok := For(reflect.TypeFor[config]()).Lookup("value;with:semicolon")
 	if !ok || field.JSONName != "value;with:semicolon" {
 		t.Fatalf("semicolon JSON tag was not accepted: %#v, %t", field, ok)
+	}
+}
+
+func TestLookupFoldedJSONNameUsesFirstField(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		Foo string `json:"Foo"`
+		FOO string `json:"FOO"`
+	}
+
+	var decoded config
+	if err := json.Unmarshal([]byte(`{"foo":"value"}`), &decoded); err != nil {
+		t.Fatalf("encoding/json.Unmarshal returned error: %v", err)
+	}
+	if decoded.Foo != "value" || decoded.FOO != "" {
+		t.Fatalf("unexpected encoding/json result: %#v", decoded)
+	}
+
+	field, ok := For(reflect.TypeFor[config]()).Lookup("foo")
+	if !ok || len(field.Index) != 1 || field.Index[0] != 0 {
+		t.Fatalf("unexpected folded JSON field: %#v, %t", field, ok)
+	}
+}
+
+func TestLookupFoldedYAMLNameUsesFirstField(t *testing.T) {
+	t.Parallel()
+
+	type config struct {
+		First  string `json:"first" yaml:"Foo"`
+		Second string `json:"second" yaml:"FOO"`
+	}
+
+	field, ok := For(reflect.TypeFor[config]()).Lookup("foo")
+	if !ok || len(field.Index) != 1 || field.Index[0] != 0 {
+		t.Fatalf("unexpected folded YAML field: %#v, %t", field, ok)
 	}
 }
 

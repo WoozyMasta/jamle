@@ -218,15 +218,26 @@ func buildInfo(t reflect.Type) *Info {
 
 	for index := range info.Fields {
 		field := info.Fields[index]
-		info.exact[field.JSONName] = index
-		if field.YAMLDecodeKey != "-" {
-			info.yamlExact[field.YAMLDecodeKey] = index
+		if _, exists := info.exact[field.JSONName]; !exists {
+			info.exact[field.JSONName] = index
 		}
-		info.folded[strings.ToLower(field.JSONName)] = index
 		if field.YAMLDecodeKey != "-" {
-			info.yamlFolded[strings.ToLower(field.YAMLDecodeKey)] = index
+			if _, exists := info.yamlExact[field.YAMLDecodeKey]; !exists {
+				info.yamlExact[field.YAMLDecodeKey] = index
+			}
+		}
+		foldedJSONName := strings.ToLower(field.JSONName)
+		if _, exists := info.folded[foldedJSONName]; !exists {
+			info.folded[foldedJSONName] = index
+		}
+		if field.YAMLDecodeKey != "-" {
+			foldedYAMLKey := strings.ToLower(field.YAMLDecodeKey)
+			if _, exists := info.yamlFolded[foldedYAMLKey]; !exists {
+				info.yamlFolded[foldedYAMLKey] = index
+			}
 		}
 	}
+
 	for _, key := range ignoredYAMLKeys(t) {
 		info.ignoredExact[key] = struct{}{}
 		info.ignoredFolded[strings.ToLower(key)] = struct{}{}
