@@ -242,3 +242,24 @@ func TestUnmarshalWithOptions_DefaultsSkipRecursiveAndSpecialTypes(t *testing.T)
 		t.Fatalf("special defaults mismatch: %#v", got)
 	}
 }
+
+func TestParseDefaultNodeCacheIsolated(t *testing.T) {
+	t.Parallel()
+
+	first, err := parseDefaultNode("shared")
+	if err != nil {
+		t.Fatalf("parseDefaultNode returned error: %v", err)
+	}
+	if len(first.Content) != 1 {
+		t.Fatalf("unexpected default node: %#v", first)
+	}
+	first.Content[0].Value = "mutated"
+
+	second, err := parseDefaultNode("shared")
+	if err != nil {
+		t.Fatalf("parseDefaultNode returned error: %v", err)
+	}
+	if len(second.Content) != 1 || second.Content[0].Value != "shared" {
+		t.Fatalf("default node was shared with caller: %#v", second)
+	}
+}

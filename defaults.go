@@ -23,7 +23,7 @@ var (
 	errDefaultAliasCycle = errors.New("yaml: alias cycle while applying defaults")
 	// defaultsPresenceCache stores the immutable recursive-defaults result by type.
 	defaultsPresenceCache sync.Map
-	// defaultNodeCache stores immutable parsed YAML values by raw default tag.
+	// defaultNodeCache stores immutable parsed YAML templates by raw default tag.
 	defaultNodeCache sync.Map
 )
 
@@ -494,18 +494,53 @@ func defaultFieldValue(root reflect.Value, index []int, allocate bool) (reflect.
 	return current, current.IsValid() && current.CanSet()
 }
 
-// parseDefaultNode parses one default tag as a YAML value.
+// parseDefaultNode parses one default tag and returns an isolated YAML graph.
 func parseDefaultNode(raw string) (*goyaml.Node, error) {
 	if cached, ok := defaultNodeCache.Load(raw); ok {
 		result := cached.(defaultNodeResult)
-		return result.node, result.err
+		return cloneDefaultNode(result.node), result.err
 	}
 
 	result := parseDefaultNodeUncached(raw)
 	cached, _ := defaultNodeCache.LoadOrStore(raw, result)
 	result = cached.(defaultNodeResult)
 
-	return result.node, result.err
+	return cloneDefaultNode(result.node), result.err
+}
+
+// cloneDefaultNode copies a default graph while preserving alias targets.
+func cloneDefaultNode(root *goyaml.Node) *goyaml.Node {
+	if root == nil {
+		return nil
+	}
+
+	clones := make(map[*goyaml.Node]*goyaml.Node)
+	var clone func(*goyaml.Node) *goyaml.Node
+	clone = func(node *goyaml.Node) *goyaml.Node {
+		if node == nil {
+			return nil
+		}
+		if copied, ok := clones[node]; ok {
+			return copied
+		}
+
+		copied := *node
+		copied.Content = nil
+		copied.Alias = nil
+		clones[node] = &copied
+
+		if len(node.Content) > 0 {
+			copied.Content = make([]*goyaml.Node, len(node.Content))
+			for i, child := range node.Content {
+				copied.Content[i] = clone(child)
+			}
+		}
+		copied.Alias = clone(node.Alias)
+
+		return &copied
+	}
+
+	return clone(root)
 }
 
 // parseDefaultNodeUncached parses one default tag without using the cache.
