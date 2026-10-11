@@ -5,6 +5,7 @@
 package jamle
 
 import (
+	"strconv"
 	"strings"
 
 	goyaml "go.yaml.in/yaml/v3"
@@ -13,7 +14,15 @@ import (
 // pathRule stores a compiled path matching rule.
 type pathRule struct {
 	// segments contains literal path components and one-segment wildcards.
-	segments []string
+	segments []pathSegment
+}
+
+// pathSegment stores one literal path component or wildcard.
+type pathSegment struct {
+	// value is the literal component value.
+	value string
+	// wildcard matches any one path component.
+	wildcard bool
 }
 
 // shouldIgnorePath reports whether path matches at least one ignore rule.
@@ -34,10 +43,11 @@ func pathRuleMatches(path []string, rule pathRule) bool {
 	}
 
 	for i := range path {
-		if rule.segments[i] == "*" {
+		segment := rule.segments[i]
+		if segment.wildcard {
 			continue
 		}
-		if rule.segments[i] != path[i] {
+		if segment.value != path[i] {
 			return false
 		}
 	}
@@ -81,7 +91,7 @@ func compilePathRules(patterns []string) []pathRule {
 			continue
 		}
 
-		canonical := strings.Join(segments, ".")
+		canonical := canonicalPathRule(segments)
 		if _, ok := seen[canonical]; ok {
 			continue
 		}
@@ -94,39 +104,60 @@ func compilePathRules(patterns []string) []pathRule {
 }
 
 // splitPathPattern splits `a.b[0].c` into path segments and normalizes indexes.
-func splitPathPattern(pattern string) []string {
-	segments := make([]string, 0, 8)
+// A backslash escapes the next character
+// so literal delimiters and wildcards can be addressed, for example `a\.b.\*`.
+func splitPathPattern(pattern string) []pathSegment {
+	segments := make([]pathSegment, 0, 8)
 	var current strings.Builder
+	currentEscaped := false
 
 	flushCurrent := func() {
 		if current.Len() == 0 {
 			return
 		}
 
-		segments = append(segments, current.String())
+		value := current.String()
+		segments = append(segments, pathSegment{
+			value:    value,
+			wildcard: value == "*" && !currentEscaped,
+		})
 		current.Reset()
+		currentEscaped = false
 	}
 
 	for i := 0; i < len(pattern); i++ {
+		if pattern[i] == '\\' {
+			if i+1 < len(pattern) {
+				current.WriteByte(pattern[i+1])
+				i++
+			} else {
+				current.WriteByte('\\')
+			}
+			currentEscaped = true
+			continue
+		}
+
 		switch pattern[i] {
 		case '.':
 			flushCurrent()
 		case '[':
 			flushCurrent()
 
-			end := strings.IndexByte(pattern[i:], ']')
-			if end <= 0 {
+			token, end, escaped, ok := parseBracketSegment(pattern, i)
+			if !ok {
+				current.WriteByte('[')
 				continue
 			}
 
-			token := strings.TrimSpace(pattern[i+1 : i+end])
-			if token == "" || token == "*" || isNumericPathIndex(token) {
-				segments = append(segments, "*")
+			token = strings.TrimSpace(token)
+			if token == "" || (!escaped && token == "*") ||
+				(!escaped && isNumericPathIndex(token)) {
+				segments = append(segments, pathSegment{value: "*", wildcard: true})
 			} else {
-				segments = append(segments, token)
+				segments = append(segments, pathSegment{value: token})
 			}
 
-			i += end
+			i = end
 		default:
 			current.WriteByte(pattern[i])
 		}
@@ -135,6 +166,50 @@ func splitPathPattern(pattern string) []string {
 	flushCurrent()
 
 	return segments
+}
+
+// parseBracketSegment parses one bracket segment and reports escaped content.
+func parseBracketSegment(pattern string, start int) (string, int, bool, bool) {
+	var token strings.Builder
+	escaped := false
+	for index := start + 1; index < len(pattern); index++ {
+		switch pattern[index] {
+		case '\\':
+			if index+1 < len(pattern) {
+				token.WriteByte(pattern[index+1])
+				index++
+			} else {
+				token.WriteByte('\\')
+			}
+			escaped = true
+
+		case ']':
+			return token.String(), index, escaped, true
+
+		default:
+			token.WriteByte(pattern[index])
+		}
+	}
+
+	return "", start, false, false
+}
+
+// canonicalPathRule creates a collision-free key for compiled path segments.
+func canonicalPathRule(segments []pathSegment) string {
+	var canonical strings.Builder
+	for _, segment := range segments {
+		canonical.WriteString(strconv.Itoa(len(segment.value)))
+		canonical.WriteByte(':')
+		if segment.wildcard {
+			canonical.WriteByte('w')
+		} else {
+			canonical.WriteByte('l')
+			canonical.WriteString(segment.value)
+		}
+		canonical.WriteByte(';')
+	}
+
+	return canonical.String()
 }
 
 // isNumericPathIndex reports whether token contains only decimal digits.

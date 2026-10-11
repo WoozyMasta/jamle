@@ -32,6 +32,8 @@ enables assignment and required-variable errors,
 leaves mapping keys literal, and uses the default expansion depth.
 [UnmarshalOptions.IgnoreExpandPaths] and the `jamle:"noexpand"` tag
 keep selected scalar values literal.
+Ignore paths use dot-separated segments; `*`, `[0]`, and `[*]` match one segment.
+Escape `.`, `[`, `]`, `*`, or `\` with a backslash for literal keys.
 [UnmarshalOptions.Strict] rejects unknown fields in typed struct targets;
 map keys and interface values remain open.
 

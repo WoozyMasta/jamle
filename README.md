@@ -277,6 +277,10 @@ _ = jamle.UnmarshalWithOptions(data, &cfg, jamle.UnmarshalOptions{
 })
 ```
 
+Paths use dot-separated segments; `*`, `[0]`, and `[*]` match one segment.
+Escape `.`, `[`, `]`, `*`, or `\` with a backslash
+when the character is part of a literal key, for example `metadata\.v1.\*`.
+
 If only one expression must stay literal in an expandable field,
 use escaping:
 

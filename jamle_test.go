@@ -574,7 +574,15 @@ func TestCompilePathRules_CanonicalDedupe(t *testing.T) {
 
 	got := make(map[string]struct{}, len(rules))
 	for i := range rules {
-		got[strings.Join(rules[i].segments, ".")] = struct{}{}
+		segments := make([]string, len(rules[i].segments))
+		for j, segment := range rules[i].segments {
+			if segment.wildcard {
+				segments[j] = "*"
+			} else {
+				segments[j] = segment.value
+			}
+		}
+		got[strings.Join(segments, ".")] = struct{}{}
 	}
 
 	if _, ok := got["spec.hooks.*.script"]; !ok {
