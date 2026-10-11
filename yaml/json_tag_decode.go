@@ -105,18 +105,100 @@ func remapMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 // remapStructMappingNodeKeys remaps one struct mapping node by JSON tag rules.
 func remapStructMappingNodeKeys(n *goyaml.Node, target reflect.Type) {
 	lookup := schema.For(target)
+	promoted := make([]promotedMapping, 0)
+	seen := make(map[*goyaml.Node]bool)
+	content := make([]*goyaml.Node, 0, len(n.Content))
+
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		keyNode := n.Content[i]
 		valNode := n.Content[i+1]
 
 		decodedField, ok := lookup.Lookup(keyNode.Value)
 		if !ok || decodedField.YAMLDecodeKey == "-" {
+			content = append(content, keyNode, valNode)
 			continue
 		}
 
 		keyNode.Value = decodedField.YAMLDecodeKey
-		remapJSONTagKeys(valNode, decodedField.Type)
+		if len(decodedField.YAMLDecodePath) == 0 {
+			remapJSONTagKeys(valNode, decodedField.Type)
+			content = append(content, keyNode, valNode)
+			continue
+		}
+
+		path := make([]string, 0, len(decodedField.YAMLDecodePath)+1)
+		for _, element := range decodedField.YAMLDecodePath {
+			path = append(path, element.Key)
+		}
+		path = append(path, decodedField.YAMLDecodeKey)
+
+		mappings := insertYAMLMappingPath(&content, path, keyNode, valNode)
+		for index, mapping := range mappings {
+			if seen[mapping] {
+				continue
+			}
+			seen[mapping] = true
+			promoted = append(promoted, promotedMapping{
+				node:   mapping,
+				target: decodedField.YAMLDecodePath[index].Type,
+			})
+		}
 	}
+
+	n.Content = content
+	for _, mapping := range promoted {
+		remapJSONTagKeys(mapping.node, mapping.target)
+	}
+}
+
+// promotedMapping identifies a generated mapping for an embedded struct.
+type promotedMapping struct {
+	// node contains fields moved below an anonymous struct field.
+	node *goyaml.Node
+	// target is the anonymous struct type represented by node.
+	target reflect.Type
+}
+
+// insertYAMLMappingPath nests a promoted field below generated mappings.
+func insertYAMLMappingPath(
+	content *[]*goyaml.Node,
+	path []string,
+	keyNode, valueNode *goyaml.Node,
+) []*goyaml.Node {
+	if len(path) <= 1 {
+		*content = append(*content, keyNode, valueNode)
+		return nil
+	}
+
+	mappings := make([]*goyaml.Node, 0, len(path)-1)
+	current := content
+	for _, key := range path[:len(path)-1] {
+		var mapping *goyaml.Node
+		for index := 0; index+1 < len(*current); index += 2 {
+			if (*current)[index].Value == key &&
+				(*current)[index+1].Kind == goyaml.MappingNode {
+				mapping = (*current)[index+1]
+				break
+			}
+		}
+
+		if mapping == nil {
+			mapping = &goyaml.Node{Kind: goyaml.MappingNode}
+			*current = append(
+				*current,
+				&goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!str", Value: key},
+				mapping,
+			)
+		}
+
+		mappings = append(mappings, mapping)
+		current = &mapping.Content
+	}
+
+	keyNode.Value = path[len(path)-1]
+	*current = append(*current, keyNode, valueNode)
+
+	return mappings
 }
 
 // derefType strips pointers until a concrete type is reached.

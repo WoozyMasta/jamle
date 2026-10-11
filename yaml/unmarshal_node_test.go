@@ -226,6 +226,26 @@ func TestUnmarshalNode_AnonymousEmbeddedInline(t *testing.T) {
 	}
 }
 
+func TestUnmarshalNode_AnonymousEmbeddedUsesJSONPromotion(t *testing.T) {
+	t.Parallel()
+
+	type Embedded struct {
+		Name string `json:"name"`
+	}
+	type sample struct {
+		Embedded
+	}
+
+	var got sample
+	err := unmarshalNodeFromString("NAME: root\n", &got)
+	if err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if got.Name != "root" {
+		t.Fatalf("embedded JSON field mismatch: got %q, want %q", got.Name, "root")
+	}
+}
+
 func TestUnmarshalNode_PointerSliceMap(t *testing.T) {
 	t.Parallel()
 

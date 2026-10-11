@@ -35,6 +35,8 @@ type Field struct {
 	JSONName string
 	// YAMLDecodeKey is the key accepted by the go-yaml decoder.
 	YAMLDecodeKey string
+	// YAMLDecodePath contains mapping levels needed for promoted fields.
+	YAMLDecodePath []YAMLPathElement
 	// Default contains the raw default tag value.
 	Default string
 	// Index is the path from the root struct to the field.
@@ -69,6 +71,14 @@ type Info struct {
 	HasNoExpand bool
 	// Opaque reports whether the type owns its decode operation.
 	Opaque bool
+}
+
+// YAMLPathElement describes one mapping level around a promoted field.
+type YAMLPathElement struct {
+	// Type is the embedded struct type represented by the mapping.
+	Type reflect.Type
+	// Key is the mapping key used by go-yaml.
+	Key string
 }
 
 // For returns cached [Info] metadata for t. Pointer layers are ignored.
@@ -363,16 +373,47 @@ func buildField(root reflect.Type, discovered discoveredField) Field {
 	defaultValue, hasDefault := sf.Tag.Lookup("default")
 
 	return Field{
-		Index:         append([]int(nil), discovered.index...),
-		Type:          sf.Type,
-		JSONName:      jsonName,
-		YAMLDecodeKey: yamlKey,
-		NoExpand:      hasNoExpandOption(root, discovered.index),
-		Default:       defaultValue,
-		HasDefault:    hasDefault && defaultValue != "-",
-		SkipDefaults:  defaultValue == "-",
-		Opaque:        IsOpaque(sf.Type),
+		Index:          append([]int(nil), discovered.index...),
+		Type:           sf.Type,
+		JSONName:       jsonName,
+		YAMLDecodeKey:  yamlKey,
+		YAMLDecodePath: yamlDecodePath(root, discovered.index),
+		NoExpand:       hasNoExpandOption(root, discovered.index),
+		Default:        defaultValue,
+		HasDefault:     hasDefault && defaultValue != "-",
+		SkipDefaults:   defaultValue == "-",
+		Opaque:         IsOpaque(sf.Type),
 	}
+}
+
+// yamlDecodePath returns mapping levels required by go-yaml for promotion.
+func yamlDecodePath(root reflect.Type, index []int) []YAMLPathElement {
+	if len(index) < 2 {
+		return nil
+	}
+
+	current := dereference(root)
+	path := make([]YAMLPathElement, 0, len(index))
+
+	for _, fieldIndex := range index[:len(index)-1] {
+		if current == nil || current.Kind() != reflect.Struct {
+			return nil
+		}
+
+		field := current.Field(fieldIndex)
+		if !tagOptions(field.Tag.Get("yaml")).contains("inline") {
+			key := yamlDecodeKey(field)
+			if key == "" || key == "-" {
+				return nil
+			}
+
+			path = append(path, YAMLPathElement{Key: key, Type: field.Type})
+		}
+
+		current = dereference(field.Type)
+	}
+
+	return path
 }
 
 // hasNoExpandOption reports whether a field

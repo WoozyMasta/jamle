@@ -104,6 +104,30 @@ func TestForTaggedFieldWins(t *testing.T) {
 	}
 }
 
+func TestForYAMLDecodePathForPromotedFields(t *testing.T) {
+	type config struct {
+		schemaEmbedded
+	}
+
+	field, ok := For(reflect.TypeFor[config]()).Lookup("name")
+	if !ok {
+		t.Fatal("promoted field was not discovered")
+	}
+	if len(field.YAMLDecodePath) != 1 ||
+		field.YAMLDecodePath[0].Key != "schemaembedded" ||
+		field.YAMLDecodePath[0].Type != reflect.TypeFor[schemaEmbedded]() {
+		t.Fatalf("unexpected YAML decode path: %#v", field.YAMLDecodePath)
+	}
+
+	type inlineConfig struct {
+		schemaEmbedded `yaml:",inline"`
+	}
+	inlineField, ok := For(reflect.TypeFor[inlineConfig]()).Lookup("name")
+	if !ok || len(inlineField.YAMLDecodePath) != 0 {
+		t.Fatalf("inline field unexpectedly needs a YAML path: %#v", inlineField.YAMLDecodePath)
+	}
+}
+
 func TestForMetadataAndOpaqueBoundaries(t *testing.T) {
 	type config struct {
 		Value schemaYAMLKey    `json:"value" yaml:"yaml_value" jamle:"noexpand" default:"x"`
