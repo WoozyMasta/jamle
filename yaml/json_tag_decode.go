@@ -17,12 +17,23 @@ func UnmarshalNode(root *goyaml.Node, o any) error {
 	return UnmarshalNodeWithOptions(root, o, DecodeOptions{})
 }
 
+// validateDecodeTarget rejects destinations that cannot receive decoded data.
+func validateDecodeTarget(o any) error {
+	if o == nil {
+		return ErrInvalidDestination
+	}
+
+	target := reflect.ValueOf(o)
+	if target.Kind() != reflect.Pointer || target.IsNil() {
+		return ErrInvalidDestination
+	}
+
+	return nil
+}
+
 // unmarshalNode decodes a node after option-specific validation has completed.
 func unmarshalNode(root *goyaml.Node, o any) error {
 	if root == nil {
-		return nil
-	}
-	if o == nil {
 		return nil
 	}
 

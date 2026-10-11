@@ -60,7 +60,11 @@ func decodeSingleDocument(data []byte) (*goyaml.Node, error) {
 
 // UnmarshalNodeWithOptions decodes a YAML node with the supplied options.
 func UnmarshalNodeWithOptions(root *goyaml.Node, v any, opts DecodeOptions) error {
-	if opts.Strict && root != nil && v != nil {
+	if err := validateDecodeTarget(v); err != nil {
+		return err
+	}
+
+	if opts.Strict && root != nil {
 		if err := validateStrictYAML(root, reflect.TypeOf(v)); err != nil {
 			return err
 		}

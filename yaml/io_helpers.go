@@ -34,6 +34,8 @@ var (
 	ErrInvalidFormat = errors.New("yaml: invalid format")
 	// ErrMultipleDocuments reports more than one YAML document in single-document input.
 	ErrMultipleDocuments = errors.New("yaml: multiple documents")
+	// ErrInvalidDestination reports a nil or non-pointer decode target.
+	ErrInvalidDestination = errors.New("yaml: invalid destination")
 	// ErrJSONTrailingData reports extra non-whitespace bytes after a JSON value.
 	ErrJSONTrailingData = errors.New("json: trailing data after top-level value")
 

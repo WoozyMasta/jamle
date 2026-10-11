@@ -6,12 +6,47 @@ package yaml
 
 import (
 	"bytes"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	goyaml "go.yaml.in/yaml/v3"
 )
+
+func TestUnmarshalNode_RejectsInvalidDestinations(t *testing.T) {
+	t.Parallel()
+
+	var value struct{}
+	var nilPointer *struct{}
+	node := &goyaml.Node{Kind: goyaml.ScalarNode, Tag: "!!null", Value: "null"}
+	tests := []struct {
+		name   string
+		target any
+	}{
+		{name: "nil interface", target: nil},
+		{name: "non-pointer", target: value},
+		{name: "typed nil pointer", target: nilPointer},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := UnmarshalNode(node, test.target); !errors.Is(err, ErrInvalidDestination) {
+				t.Fatalf("UnmarshalNode error: got %v, want ErrInvalidDestination", err)
+			}
+		})
+	}
+}
+
+func TestUnmarshalNode_ValidatesDestinationForEmptyInput(t *testing.T) {
+	t.Parallel()
+
+	if err := Unmarshal(nil, nil); !errors.Is(err, ErrInvalidDestination) {
+		t.Fatalf("Unmarshal error: got %v, want ErrInvalidDestination", err)
+	}
+}
 
 // testNodeCustom records the first key received by a custom decoder.
 type testNodeCustom struct {
