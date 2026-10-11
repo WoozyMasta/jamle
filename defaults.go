@@ -45,6 +45,12 @@ type defaultMapEntry struct {
 	key reflect.Value
 }
 
+// defaultPointerVisit identifies one active destination pointer.
+type defaultPointerVisit struct {
+	typ reflect.Type
+	ptr uintptr
+}
+
 // hasDefaults reports whether t or any reachable schema field needs defaults.
 func hasDefaults(t reflect.Type) bool {
 	t = dereferenceExpansionType(t)
@@ -96,7 +102,13 @@ func applyDefaults(root *goyaml.Node, target any) error {
 		return nil
 	}
 
-	return applyDefaultsValue(reflect.ValueOf(target), root, "$", make(map[*goyaml.Node]bool))
+	return applyDefaultsValue(
+		reflect.ValueOf(target),
+		root,
+		"$",
+		make(map[*goyaml.Node]bool),
+		make(map[defaultPointerVisit]bool),
+	)
 }
 
 // applyDefaultsValue traverses decoded values and their source nodes together.
@@ -105,6 +117,7 @@ func applyDefaultsValue(
 	node *goyaml.Node,
 	path string,
 	active map[*goyaml.Node]bool,
+	activePointers map[defaultPointerVisit]bool,
 ) error {
 	if !dst.IsValid() {
 		return nil
@@ -124,7 +137,7 @@ func applyDefaultsValue(
 
 			active[node] = true
 			defer delete(active, node)
-			return applyDefaultsValue(dst, node.Alias, path, active)
+			return applyDefaultsValue(dst, node.Alias, path, active, activePointers)
 		}
 		if node.Tag == "!!null" {
 			return nil
@@ -136,7 +149,15 @@ func applyDefaultsValue(
 			return nil
 		}
 
-		return applyDefaultsValue(dst.Elem(), node, path, active)
+		visit := defaultPointerVisit{typ: dst.Type(), ptr: dst.Pointer()}
+		if activePointers[visit] {
+			return nil
+		}
+
+		activePointers[visit] = true
+		defer delete(activePointers, visit)
+
+		return applyDefaultsValue(dst.Elem(), node, path, active, activePointers)
 	}
 	if schema.IsOpaque(dst.Type()) {
 		return nil
@@ -144,13 +165,13 @@ func applyDefaultsValue(
 
 	switch dst.Kind() {
 	case reflect.Struct:
-		return applyDefaultsStruct(dst, node, path, active)
+		return applyDefaultsStruct(dst, node, path, active, activePointers)
 
 	case reflect.Slice, reflect.Array:
-		return applyDefaultsSequence(dst, node, path, active)
+		return applyDefaultsSequence(dst, node, path, active, activePointers)
 
 	case reflect.Map:
-		return applyDefaultsMap(dst, node, path, active)
+		return applyDefaultsMap(dst, node, path, active, activePointers)
 
 	default:
 		return nil
@@ -163,6 +184,7 @@ func applyDefaultsStruct(
 	node *goyaml.Node,
 	path string,
 	active map[*goyaml.Node]bool,
+	activePointers map[defaultPointerVisit]bool,
 ) error {
 	info := schema.For(dst.Type())
 	sources, err := collectDefaultSources(node, dst.Type())
@@ -192,7 +214,7 @@ func applyDefaultsStruct(
 				continue
 			}
 
-			if err := applyDefaultsValue(fieldValue, source, fieldPath, active); err != nil {
+			if err := applyDefaultsValue(fieldValue, source, fieldPath, active, activePointers); err != nil {
 				return err
 			}
 
@@ -211,7 +233,7 @@ func applyDefaultsStruct(
 				}
 
 				if !field.SkipDefaults {
-					if err := applyDefaultsValue(fieldValue, defaultNode, fieldPath, active); err != nil {
+					if err := applyDefaultsValue(fieldValue, defaultNode, fieldPath, active, activePointers); err != nil {
 						return err
 					}
 				}
@@ -223,7 +245,7 @@ func applyDefaultsStruct(
 		if field.SkipDefaults || !hasDefaults(field.Type) {
 			continue
 		}
-		if err := applyDefaultsValue(fieldValue, nil, fieldPath, active); err != nil {
+		if err := applyDefaultsValue(fieldValue, nil, fieldPath, active, activePointers); err != nil {
 			return err
 		}
 	}
@@ -237,6 +259,7 @@ func applyDefaultsSequence(
 	node *goyaml.Node,
 	path string,
 	active map[*goyaml.Node]bool,
+	activePointers map[defaultPointerVisit]bool,
 ) error {
 	if node == nil || node.Kind != goyaml.SequenceNode {
 		return nil
@@ -245,7 +268,13 @@ func applyDefaultsSequence(
 	limit := min(dst.Len(), len(node.Content))
 	for index := range limit {
 		itemPath := fmt.Sprintf("%s[%d]", path, index)
-		if err := applyDefaultsValue(dst.Index(index), node.Content[index], itemPath, active); err != nil {
+		if err := applyDefaultsValue(
+			dst.Index(index),
+			node.Content[index],
+			itemPath,
+			active,
+			activePointers,
+		); err != nil {
 			return err
 		}
 	}
@@ -259,6 +288,7 @@ func applyDefaultsMap(
 	node *goyaml.Node,
 	path string,
 	active map[*goyaml.Node]bool,
+	activePointers map[defaultPointerVisit]bool,
 ) error {
 	if node == nil || node.Kind != goyaml.MappingNode || dst.IsNil() {
 		return nil
@@ -284,6 +314,7 @@ func applyDefaultsMap(
 			entry.valueNode,
 			joinDefaultPath(path, keyNode.Value),
 			active,
+			activePointers,
 		); err != nil {
 			return err
 		}

@@ -144,6 +144,84 @@ func TestUnmarshalWithOptions_DefaultsNestedValues(t *testing.T) {
 	}
 }
 
+func TestUnmarshalWithOptions_DefaultsIgnorePointerCycles(t *testing.T) {
+	t.Parallel()
+
+	type node struct {
+		Value int   `json:"value" default:"1"`
+		Next  *node `json:"next"`
+	}
+
+	self := &node{}
+	self.Next = self
+	if err := Unmarshal([]byte("{}\n"), self); err != nil {
+		t.Fatalf("self-cycle unmarshal returned error: %v", err)
+	}
+	if self.Value != 1 {
+		t.Fatalf("self-cycle default mismatch: got %d, want 1", self.Value)
+	}
+
+	first := &node{}
+	second := &node{}
+	first.Next = second
+	second.Next = first
+	if err := Unmarshal([]byte("{}\n"), first); err != nil {
+		t.Fatalf("two-node cycle unmarshal returned error: %v", err)
+	}
+	if first.Value != 1 || second.Value != 1 {
+		t.Fatalf("two-node cycle defaults mismatch: first=%d second=%d",
+			first.Value, second.Value)
+	}
+}
+
+func TestUnmarshalWithOptions_DefaultsTraverseSharedPointerBranches(t *testing.T) {
+	t.Parallel()
+
+	type node struct {
+		Value int `json:"value" default:"1"`
+	}
+	type config struct {
+		Left  *node `json:"left"`
+		Right *node `json:"right"`
+	}
+
+	shared := &node{}
+	got := config{Left: shared, Right: shared}
+	if err := Unmarshal([]byte("{}\n"), &got); err != nil {
+		t.Fatalf("shared-pointer unmarshal returned error: %v", err)
+	}
+	if got.Left.Value != 1 || got.Right.Value != 1 {
+		t.Fatalf("shared-pointer defaults mismatch: left=%d right=%d",
+			got.Left.Value, got.Right.Value)
+	}
+}
+
+func TestApplyDefaults_IgnorePointerCyclesInMapValues(t *testing.T) {
+	t.Parallel()
+
+	type node struct {
+		Value int   `json:"value" default:"1"`
+		Next  *node `json:"next"`
+	}
+	type config struct {
+		Nodes map[string]*node `json:"nodes"`
+	}
+
+	self := &node{}
+	self.Next = self
+	got := config{Nodes: map[string]*node{"self": self}}
+	root, err := parseDocument([]byte("nodes:\n  self: {}\n"))
+	if err != nil {
+		t.Fatalf("parseDocument returned error: %v", err)
+	}
+	if err := applyDefaults(root, &got); err != nil {
+		t.Fatalf("applyDefaults returned error: %v", err)
+	}
+	if got.Nodes["self"].Value != 1 {
+		t.Fatalf("map cycle default mismatch: got %d, want 1", got.Nodes["self"].Value)
+	}
+}
+
 func TestUnmarshalWithOptions_DefaultsInCollections(t *testing.T) {
 	t.Parallel()
 

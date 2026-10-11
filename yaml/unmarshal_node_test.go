@@ -169,6 +169,62 @@ func TestUnmarshalNode_PreservesAnchorAliasGraph(t *testing.T) {
 	}
 }
 
+func TestUnmarshalNode_RecursiveAliasReturnsError(t *testing.T) {
+	t.Parallel()
+
+	anchor := &goyaml.Node{Kind: goyaml.SequenceNode}
+	anchor.Content = []*goyaml.Node{{Kind: goyaml.AliasNode, Alias: anchor}}
+	root := &goyaml.Node{
+		Kind: goyaml.MappingNode,
+		Content: []*goyaml.Node{
+			{Kind: goyaml.ScalarNode, Tag: "!!str", Value: "value"},
+			{Kind: goyaml.AliasNode, Alias: anchor},
+		},
+	}
+
+	var got map[string]any
+	err := UnmarshalNode(root, &got)
+	if !errors.Is(err, errJSONTagAliasCycle) {
+		t.Fatalf("UnmarshalNode error: got %v, want alias cycle", err)
+	}
+}
+
+func TestUnmarshalNode_TwoNodeAliasCycleReturnsError(t *testing.T) {
+	t.Parallel()
+
+	first := &goyaml.Node{Kind: goyaml.SequenceNode}
+	second := &goyaml.Node{Kind: goyaml.SequenceNode}
+	first.Content = []*goyaml.Node{{Kind: goyaml.AliasNode, Alias: second}}
+	second.Content = []*goyaml.Node{{Kind: goyaml.AliasNode, Alias: first}}
+	root := &goyaml.Node{
+		Kind: goyaml.MappingNode,
+		Content: []*goyaml.Node{
+			{Kind: goyaml.ScalarNode, Tag: "!!str", Value: "value"},
+			{Kind: goyaml.AliasNode, Alias: first},
+		},
+	}
+
+	type sample struct {
+		Value []any `json:"value"`
+	}
+
+	var got sample
+	err := UnmarshalNode(root, &got)
+	if !errors.Is(err, errJSONTagAliasCycle) {
+		t.Fatalf("UnmarshalNode error: got %v, want alias cycle", err)
+	}
+}
+
+func TestUnmarshal_RecursiveAliasReturnsError(t *testing.T) {
+	t.Parallel()
+
+	var got map[string]any
+	err := Unmarshal([]byte("value: &value\n  - *value\n"), &got)
+	if !errors.Is(err, errJSONTagAliasCycle) {
+		t.Fatalf("Unmarshal error: got %v, want alias cycle", err)
+	}
+}
+
 func TestUnmarshalNode_AliasUsesConsumerSchema(t *testing.T) {
 	t.Parallel()
 
@@ -320,6 +376,24 @@ func TestUnmarshalNode_IgnoresJSONIgnoredFields(t *testing.T) {
 	}
 	if got.Ignored != "" || got.IgnoredByName != "" {
 		t.Fatalf("JSON-ignored field was decoded: %#v", got)
+	}
+}
+
+func TestUnmarshalNode_JSONTagOptionsKeepDashField(t *testing.T) {
+	t.Parallel()
+
+	sample := reflect.StructOf([]reflect.StructField{{
+		Name: "Value",
+		Type: reflect.TypeFor[string](),
+		Tag:  `json:"-,omitempty"`,
+	}})
+
+	got := reflect.New(sample)
+	if err := unmarshalNodeFromString(`"-": value`+"\n", got.Interface()); err != nil {
+		t.Fatalf("UnmarshalNode returned error: %v", err)
+	}
+	if value := got.Elem().Field(0).String(); value != "value" {
+		t.Fatalf("json tag with options was treated as ignored: got %q", value)
 	}
 }
 
