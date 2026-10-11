@@ -6,13 +6,18 @@ GOFLAGS           ?= -buildvcs=auto -trimpath
 LDFLAGS           ?= -s -w
 GOWORK            ?= off
 
-LINTER            ?= golangci-lint
-LINTER_VERSION    ?= v2.13.2
-ALIGNER           ?= betteralign
+GO_BIN_PATH       := $(shell $(GO) env GOBIN)
+ifeq ($(strip $(GO_BIN_PATH)),)
+GO_BIN_PATH       := $(shell $(GO) env GOPATH)/bin
+endif
+
+LINTER            ?= $(GO_BIN_PATH)/golangci-lint
+LINTER_VERSION    ?= v2.14.0
+ALIGNER           ?= $(GO_BIN_PATH)/betteralign
 ALIGNER_VERSION   ?= v0.15.1
-VULNCHECK         ?= govulncheck
+VULNCHECK         ?= $(GO_BIN_PATH)/govulncheck
 VULNCHECK_VERSION ?= v1.8.0
-BENCHSTAT         ?= benchstat
+BENCHSTAT         ?= $(GO_BIN_PATH)/benchstat
 
 RUMDL             ?= rumdl
 
