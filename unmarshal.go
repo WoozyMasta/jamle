@@ -100,6 +100,10 @@ func decodeDocument(
 	containsVars bool,
 	strict bool,
 ) (reflect.Value, error) {
+	if elemType.Kind() == reflect.Pointer && isNullDocument(root) {
+		return reflect.Zero(elemType), nil
+	}
+
 	if elemType.Kind() == reflect.Pointer {
 		target := reflect.New(elemType.Elem())
 		if err := processDocument(
@@ -129,6 +133,18 @@ func decodeDocument(
 	}
 
 	return target.Elem(), nil
+}
+
+// isNullDocument reports whether a document has no value or an explicit null value.
+func isNullDocument(root *goyaml.Node) bool {
+	for root != nil && root.Kind == goyaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return true
+		}
+		root = root.Content[0]
+	}
+
+	return root != nil && root.Kind == goyaml.ScalarNode && root.Tag == "!!null"
 }
 
 // parseDocument parses the first YAML document from data into a node graph.

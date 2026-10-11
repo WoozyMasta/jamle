@@ -291,6 +291,21 @@ host: ${HOST_B:-default.local}
 	})
 }
 
+func TestUnmarshalAll_NullPointerDocument(t *testing.T) {
+	type doc struct {
+		Name string `json:"name"`
+	}
+
+	var got []*doc
+	input := []byte("---\nnull\n---\nname: value\n")
+	if err := UnmarshalAll(input, &got); err != nil {
+		t.Fatalf("UnmarshalAll returned error: %v", err)
+	}
+	if len(got) != 2 || got[0] != nil || got[1] == nil || got[1].Name != "value" {
+		t.Fatalf("null document mismatch: %#v", got)
+	}
+}
+
 type mapResolver struct {
 	values map[string]string
 }
