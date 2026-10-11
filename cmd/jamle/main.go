@@ -10,6 +10,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jessevdk/go-flags"
 	"github.com/woozymasta/jamle"
 	"github.com/woozymasta/jamle/yaml"
 )
@@ -30,22 +30,41 @@ var (
 	_buildTime string
 )
 
-type cliOptions struct {
-	Args struct {
-		Input  string `description:"Input file path, or '-' for stdin." positional-arg-name:"input"`
-		Output string `description:"Output file path, or '-' for stdout." positional-arg-name:"output"`
-	} `positional-args:"yes"`
+// errCLIInputRequired reports that the command did not receive an input path.
+var errCLIInputRequired = errors.New("input path is required")
 
-	To                    string   `description:"Output format. In auto mode, output file extension is used (.json|.yaml|.yml); fallback is json." long:"to" short:"t" default:"auto" choice:"auto" choice:"json" choice:"yaml"`
-	IgnoreExpandPaths     []string `description:"Skip expansion for matching YAML key paths (glob segments with *). Can be repeated." long:"ignore-expand-path" short:"I" value-name:"PATH"`
-	Indent                int      `description:"Output indentation. Use 0 for compact output." long:"indent" short:"i" default:"2" value-name:"N"`
-	MaxBytes              int64    `description:"Maximum input size in bytes." long:"max-bytes" short:"m" default:"67108864" value-name:"N"`
-	MaxDepth              int      `description:"Maximum variable expansion depth." long:"max-depth" short:"p" default:"32" value-name:"N"`
-	ExpandKeys            bool     `description:"Expand environment expressions in mapping keys." long:"expand-keys"`
-	All                   bool     `description:"Decode all input documents (YAML multi-document stream)." long:"all" short:"a"`
-	DisableAssignment     bool     `description:"Disable side effects of ${VAR:=default}; behaves like ${VAR:-default}." long:"disable-assignment" short:"A"`
-	DisableRequiredErrors bool     `description:"Disable errors for ${VAR:?error}; behaves like ${VAR}." long:"disable-required-errors" short:"R"`
-	Version               bool     `description:"Print version information and exit." long:"version" short:"v"`
+// cliOptions contains values parsed from command-line flags and arguments.
+type cliOptions struct {
+	// Args contains the optional input and output paths.
+	Args struct {
+		Input  string // Input is the source file path, or "-" for stdin.
+		Output string // Output is the destination file path, or "-" for stdout.
+	}
+
+	To                    string   // To selects the output format.
+	IgnoreExpandPaths     []string // IgnoreExpandPaths contains repeatable path patterns excluded from expansion.
+	Indent                int      // Indent controls output indentation.
+	MaxBytes              int64    // MaxBytes limits the input size.
+	MaxDepth              int      // MaxDepth limits nested and recursive expansion.
+	ExpandKeys            bool     // ExpandKeys enables expansion in mapping keys.
+	All                   bool     // All decodes all documents in a YAML stream.
+	DisableAssignment     bool     // DisableAssignment suppresses ${VAR:=default} environment updates.
+	DisableRequiredErrors bool     // DisableRequiredErrors suppresses ${VAR:?error} failures.
+	Version               bool     // Version requests CLI version information.
+}
+
+// stringListValue implements flag.Value for repeatable string options.
+type stringListValue []string
+
+// String returns the current value in flag-compatible form.
+func (v *stringListValue) String() string {
+	return strings.Join(*v, ",")
+}
+
+// Set appends one occurrence of a repeatable string option.
+func (v *stringListValue) Set(value string) error {
+	*v = append(*v, value)
+	return nil
 }
 
 func init() {
@@ -63,33 +82,17 @@ func init() {
 
 // main runs the CLI input/read/expand/print flow.
 func main() {
-	var opts cliOptions
-	parser := flags.NewNamedParser("jamle", flags.HelpFlag|flags.PassDoubleDash)
-	parser.LongDescription = `jamle reads YAML or JSON and expands environment variables.
-
-Supported placeholders:
-* ${VAR}           value of VAR, or empty string if unset.
-* ${VAR:-default}  default if VAR is unset or empty.
-* ${VAR:=default}  same as above, and sets VAR in current process environment.
-* ${VAR:?error}    error if VAR is unset or empty.
-* $${VAR}          escaping; keeps literal ${VAR} without expansion.`
-	parser.LongDescription += "\n\nMapping keys stay literal by default; use --expand-keys to expand them."
-
-	_, err := parser.AddGroup("Options", "", &opts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing CLI parser: %v\n", err)
-		os.Exit(2)
+	opts, err := parseCLIOptions(os.Args[1:], io.Discard)
+	if errors.Is(err, flag.ErrHelp) {
+		printCLIHelp(os.Stdout)
+		return
 	}
 
-	_, err = parser.ParseArgs(os.Args[1:])
 	if err != nil {
-		var flagsErr *flags.Error
-		if errors.As(err, &flagsErr) && flagsErr.Type == flags.ErrHelp {
-			parser.WriteHelp(os.Stdout)
-			return
-		}
-
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		if errors.Is(err, errCLIInputRequired) {
+			fmt.Fprintln(os.Stderr, "Use '-' for stdin or -h/--help for usage.")
+		}
 		os.Exit(2)
 	}
 
@@ -108,19 +111,14 @@ Supported placeholders:
 		os.Exit(2)
 	}
 
-	inputPath := opts.Args.Input
-	if inputPath == "" {
-		inputPath = "-"
-	}
-
-	input, err := readInput(inputPath, opts.MaxBytes)
+	input, err := readInput(opts.Args.Input, opts.MaxBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
 		os.Exit(1)
 	}
 
 	if len(input) == 0 {
-		parser.WriteHelp(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Error: input is empty")
 		os.Exit(1)
 	}
 
@@ -171,6 +169,62 @@ Supported placeholders:
 		fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseCLIOptions parses flags before up to two positional arguments.
+func parseCLIOptions(args []string, output io.Writer) (cliOptions, error) {
+	var opts cliOptions
+	var ignorePaths stringListValue
+
+	parser := flag.NewFlagSet("jamle", flag.ContinueOnError)
+	parser.SetOutput(output)
+	parser.Usage = func() {
+		_, _ = fmt.Fprintln(output, "Usage: jamle [flags] input [output]")
+		_, _ = fmt.Fprintln(output, "  -h, --help\n\tshow this help message")
+		parser.PrintDefaults()
+	}
+
+	parser.StringVar(&opts.To, "to", "auto", "output format: auto, json, or yaml")
+	parser.Var(&ignorePaths, "ignore-expand-path", "skip expansion for a matching YAML key path; can be repeated")
+	parser.IntVar(&opts.Indent, "indent", 2, "output indentation; use 0 for compact output")
+	parser.Int64Var(&opts.MaxBytes, "max-bytes", 67108864, "maximum input size in bytes")
+	parser.IntVar(&opts.MaxDepth, "max-depth", 32, "maximum variable expansion depth")
+	parser.BoolVar(&opts.ExpandKeys, "expand-keys", false, "Expand environment expressions in mapping keys.")
+	parser.BoolVar(&opts.All, "all", false, "Decode all input documents in a YAML stream.")
+	parser.BoolVar(&opts.DisableAssignment, "disable-assignment", false, "Disable assignment expansion.")
+	parser.BoolVar(&opts.DisableRequiredErrors, "disable-required-errors", false, "Disable required-variable errors.")
+	parser.BoolVar(&opts.Version, "version", false, "Print version information and exit.")
+
+	if err := parser.Parse(args); err != nil {
+		return cliOptions{}, err
+	}
+
+	switch opts.To {
+	case "auto", "json", "yaml":
+	default:
+		return cliOptions{}, fmt.Errorf("invalid --to value: %q", opts.To)
+	}
+
+	if parser.NArg() > 2 {
+		return cliOptions{}, fmt.Errorf("expected at most two positional arguments, got %d", parser.NArg())
+	}
+	if parser.NArg() == 0 && !opts.Version {
+		return cliOptions{}, errCLIInputRequired
+	}
+	if parser.NArg() > 0 {
+		opts.Args.Input = parser.Arg(0)
+	}
+	if parser.NArg() > 1 {
+		opts.Args.Output = parser.Arg(1)
+	}
+	opts.IgnoreExpandPaths = append([]string(nil), ignorePaths...)
+
+	return opts, nil
+}
+
+// printCLIHelp writes the complete command usage to output.
+func printCLIHelp(output io.Writer) {
+	_, _ = parseCLIOptions([]string{"-h"}, output)
 }
 
 // readInput reads input from path or stdin.
@@ -240,8 +294,10 @@ func resolveOutputFormat(to, outputPath string) (yaml.Format, error) {
 	switch strings.ToLower(to) {
 	case "json":
 		return yaml.FormatJSON, nil
+
 	case "yaml":
 		return yaml.FormatYAML, nil
+
 	case "auto":
 		ext := strings.ToLower(filepath.Ext(outputPath))
 		switch ext {
@@ -252,6 +308,7 @@ func resolveOutputFormat(to, outputPath string) (yaml.Format, error) {
 		default:
 			return yaml.FormatJSON, nil
 		}
+
 	default:
 		return "", fmt.Errorf("invalid --to value: %q", to)
 	}

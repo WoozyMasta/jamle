@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,18 +15,36 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jessevdk/go-flags"
 	"github.com/woozymasta/jamle"
 	"github.com/woozymasta/jamle/yaml"
 )
 
 func TestCLIOptions_InvalidChoice(t *testing.T) {
-	var opts cliOptions
-	parser := flags.NewParser(&opts, flags.None)
-
-	_, err := parser.ParseArgs([]string{"--to", "xml"})
+	_, err := parseCLIOptions([]string{"--to", "xml"}, io.Discard)
 	if err == nil {
-		t.Fatal("expected ParseArgs to fail for invalid --to choice")
+		t.Fatal("expected parseCLIOptions to fail for invalid --to choice")
+	}
+}
+
+func TestCLIOptions_Help(t *testing.T) {
+	var output bytes.Buffer
+
+	_, err := parseCLIOptions([]string{"--help"}, &output)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected flag.ErrHelp, got %v", err)
+	}
+	if !strings.Contains(output.String(), "Usage: jamle [flags] input [output]") {
+		t.Fatalf("help output does not contain usage: %q", output.String())
+	}
+	if !strings.Contains(output.String(), "-h, --help") {
+		t.Fatalf("help output does not describe help flags: %q", output.String())
+	}
+}
+
+func TestCLIOptions_RequiresInput(t *testing.T) {
+	_, err := parseCLIOptions(nil, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "input path is required") {
+		t.Fatalf("expected missing-input error, got %v", err)
 	}
 }
 
@@ -43,10 +62,9 @@ func TestCLIOptions_CoreFlags(t *testing.T) {
 		"out.yaml",
 	}
 
-	var opts cliOptions
-	parser := flags.NewParser(&opts, flags.None)
-	if _, err := parser.ParseArgs(args); err != nil {
-		t.Fatalf("ParseArgs returned error: %v", err)
+	opts, err := parseCLIOptions(args, io.Discard)
+	if err != nil {
+		t.Fatalf("parseCLIOptions returned error: %v", err)
 	}
 
 	if opts.To != "yaml" || opts.Indent != 4 || opts.MaxBytes != 1024 || opts.MaxDepth != 15 {
@@ -69,13 +87,14 @@ func TestCLIOptions_IgnoreExpandPath(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{name: "no flag", args: []string{}, want: nil},
-		{name: "single flag", args: []string{"-I", "spec.hooks.*.*.script"}, want: []string{"spec.hooks.*.*.script"}},
+		{name: "no flag", args: []string{"-"}, want: nil},
+		{name: "single flag", args: []string{"--ignore-expand-path", "spec.hooks.*.*.script", "-"}, want: []string{"spec.hooks.*.*.script"}},
 		{
 			name: "repeatable flag",
 			args: []string{
 				"--ignore-expand-path", "spec.hooks.*.*.script",
 				"--ignore-expand-path", "spec.templates.*.raw",
+				"-",
 			},
 			want: []string{"spec.hooks.*.*.script", "spec.templates.*.raw"},
 		},
@@ -83,10 +102,9 @@ func TestCLIOptions_IgnoreExpandPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts cliOptions
-			parser := flags.NewParser(&opts, flags.None)
-			if _, err := parser.ParseArgs(tt.args); err != nil {
-				t.Fatalf("ParseArgs returned error: %v", err)
+			opts, err := parseCLIOptions(tt.args, io.Discard)
+			if err != nil {
+				t.Fatalf("parseCLIOptions returned error: %v", err)
 			}
 
 			if !reflect.DeepEqual(opts.IgnoreExpandPaths, tt.want) {

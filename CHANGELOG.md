@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning][].
   now return errors instead of partial unresolved values.
 * Mapping keys remain literal by default;
   key expansion requires `UnmarshalOptions.ExpandKeys`.
+* CLI was simplified with a breaking change to its invocation contract;
+  compatibility with previous command-line usage is not guaranteed.
 * Expansion, strict validation, defaults, and noexpand policies
   use shared schema metadata and effective paths
   through YAML aliases and merges.

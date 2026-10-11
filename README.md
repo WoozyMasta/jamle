@@ -39,22 +39,31 @@ often require dynamic configuration.
 
 ## Installation
 
-### As a CLI Tool
-
-You can download pre-compiled binaries from the
-[Releases](https://github.com/woozymasta/jamle/releases) page,
-or install directly via Go:
-
-```bash
-go install github.com/woozymasta/jamle/cmd/jamle@latest
-```
-
 ### As a Library
 
 To use `jamle` in your Go project:
 
 ```bash
 go get github.com/woozymasta/jamle
+```
+
+### Auxiliary CLI
+
+The repository also includes a small CLI utility
+for basic configuration inspection and format conversion.
+
+Latest releases are available on the
+[GitHub Releases](https://github.com/woozymasta/jamle/releases) page.
+Install the latest version with:
+
+```bash
+go install github.com/woozymasta/jamle/cmd/jamle@latest
+```
+
+Basic usage:
+
+```bash
+jamle config.yaml
 ```
 
 ## Supported Syntax
@@ -98,40 +107,6 @@ database:
   dsn: "${DB_URL:-${FULL_DSN}}"
   # Sets env var 'DB_TIMEOUT' if it was missing
   timeout: "${DB_TIMEOUT:=30s}" 
-```
-
-### Parse it with CLI Tool
-
-`jamle` comes with a handy command-line utility.
-It reads YAML/JSON files, expands environment variables,
-and outputs the result as formatted JSON.
-
-This is perfect for:
-
-* **Debugging:** Check how your config looks with current env vars
-* **CI/CD Pipelines:** Pipe the output to tools like `jq` to extract values
-* **Conversion:** Instantly convert YAML to JSON
-
-Examples:
-
-```bash
-# Show help
-jamle --help
-# Read from file
-jamle config.yaml
-# Read from stdin and pipe to stdout
-cat config.yaml | jamle | jq '.server.port'
-# Write to file (auto by extension => YAML)
-jamle config.yaml output.yaml
-# Force output format explicitly
-jamle config.yaml output.yaml --to yaml
-# Disable required-variable errors (${VAR:?msg} behaves like ${VAR})
-jamle config.yaml --disable-required-errors
-# Expand environment expressions in mapping keys (disabled by default)
-jamle config.yaml --expand-keys
-# Set env var and read from file
-export SERVER_PORT=9000
-jamle config.yaml
 ```
 
 ### Parse it with Go
