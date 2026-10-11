@@ -62,8 +62,9 @@ func JSONToYAML(j []byte) ([]byte, error) {
 // passing JSON through this method should be a no-op.
 //
 // Things YAML can do that are not supported by JSON:
-//   - In YAML you can have binary and null keys in your maps.
-//     These are invalid in JSON. (int and float keys are converted to strings.)
+//   - Binary map keys are normalized to canonical base64 strings;
+//     null and complex keys remain unsupported by JSON.
+//     Int and float keys are converted to strings.
 //   - Distinct YAML map keys that stringify to the same JSON key are rejected.
 //   - YAML !!binary values are normalized to canonical base64 strings.
 func YAMLToJSON(y []byte) ([]byte, error) { //nolint:revive

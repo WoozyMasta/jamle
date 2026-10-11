@@ -70,3 +70,20 @@ func TestYAMLToJSONBinaryRejectsInvalidBase64(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestYAMLToJSONBinaryMappingKey(t *testing.T) {
+	t.Parallel()
+
+	out, err := YAMLToJSON([]byte("!!binary Zm9v: binary\n"))
+	if err != nil {
+		t.Fatalf("YAMLToJSON returned error: %v", err)
+	}
+	if got, want := string(out), `{"Zm9v":"binary"}`; got != want {
+		t.Fatalf("unexpected binary key JSON:\n got: %s\nwant: %s", got, want)
+	}
+
+	_, err = YAMLToJSON([]byte("!!binary Zm9v: binary\n\"Zm9v\": string\n"))
+	if err == nil {
+		t.Fatal("expected binary key collision error")
+	}
+}
