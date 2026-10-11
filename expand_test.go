@@ -339,13 +339,15 @@ b: *value
 
 func TestUnmarshalWithOptions_MergeUsesConsumerSchemaAndPath(t *testing.T) {
 	type config struct {
-		Name   string `json:"name"`
-		Secret string `json:"secret" jamle:"noexpand"`
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		Secret      string `json:"secret" jamle:"noexpand"`
 	}
 
 	input := []byte(`
 defaults: &defaults
   name: "${NAME:-default}"
+  display_name: "${DISPLAY_NAME:-display}"
   secret: "${SECRET:-literal}"
 app:
   <<: *defaults
@@ -361,7 +363,8 @@ app:
 		t.Fatalf("UnmarshalWithOptions returned error: %v", err)
 	}
 
-	if got.Defaults.Name != "default" || got.App.Name != "default" {
+	if got.Defaults.Name != "default" || got.App.Name != "default" ||
+		got.Defaults.DisplayName != "display" || got.App.DisplayName != "display" {
 		t.Fatalf("merged names mismatch: %#v", got)
 	}
 	if got.Defaults.Secret != "${SECRET:-literal}" ||

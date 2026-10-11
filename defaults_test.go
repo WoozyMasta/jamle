@@ -179,21 +179,23 @@ func TestUnmarshalWithOptions_DefaultsAliasesAndMerge(t *testing.T) {
 	t.Parallel()
 
 	type settings struct {
-		Name string `json:"name" default:"default"`
-		Port int    `json:"port" default:"8080"`
+		Name        string `json:"name" default:"default"`
+		DisplayName string `json:"display_name" default:"display"`
+		Port        int    `json:"port" default:"8080"`
 	}
 	type config struct {
 		Base    settings `json:"base"`
 		Current settings `json:"current"`
 	}
 
-	input := []byte("base: &base\n  name: shared\ncurrent:\n  <<: *base\n")
+	input := []byte("base: &base\n  name: shared\n  display_name: shared\ncurrent:\n  <<: *base\n")
 	var got config
 	if err := Unmarshal(input, &got); err != nil {
 		t.Fatalf("Unmarshal returned error: %v", err)
 	}
-	if got.Base.Name != "shared" || got.Base.Port != 8080 ||
-		got.Current.Name != "shared" || got.Current.Port != 8080 {
+	if got.Base.Name != "shared" || got.Base.DisplayName != "shared" ||
+		got.Base.Port != 8080 || got.Current.Name != "shared" ||
+		got.Current.DisplayName != "shared" || got.Current.Port != 8080 {
 		t.Fatalf("alias/merge defaults mismatch: %#v", got)
 	}
 }
