@@ -14,7 +14,7 @@ endif
 LINTER            ?= $(GO_BIN_PATH)/golangci-lint
 LINTER_VERSION    ?= v2.14.0
 ALIGNER           ?= $(GO_BIN_PATH)/betteralign
-ALIGNER_VERSION   ?= v0.15.1
+ALIGNER_VERSION   ?= v0.15.3
 VULNCHECK         ?= $(GO_BIN_PATH)/govulncheck
 VULNCHECK_VERSION ?= v1.8.0
 BENCHSTAT         ?= $(GO_BIN_PATH)/benchstat
