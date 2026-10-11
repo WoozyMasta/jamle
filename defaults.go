@@ -294,9 +294,8 @@ func collectDefaultMappingSources(
 	target reflect.Type,
 	active map[*goyaml.Node]bool,
 ) (map[string]*goyaml.Node, error) {
-	sources := make(map[string]*goyaml.Node)
 	if node == nil {
-		return sources, nil
+		return nil, nil
 	}
 
 	for node.Kind == goyaml.DocumentNode && len(node.Content) > 0 {
@@ -304,7 +303,7 @@ func collectDefaultMappingSources(
 	}
 	if node.Kind == goyaml.AliasNode {
 		if node.Alias == nil {
-			return sources, nil
+			return nil, nil
 		}
 		if active[node] {
 			return nil, errDefaultAliasCycle
@@ -316,10 +315,14 @@ func collectDefaultMappingSources(
 	}
 
 	if node.Kind != goyaml.MappingNode {
-		return sources, nil
+		return nil, nil
+	}
+	if len(node.Content) == 0 {
+		return nil, nil
 	}
 
 	lookup := schema.For(target)
+	sources := make(map[string]*goyaml.Node)
 	explicit := make(map[string]*goyaml.Node)
 	for index := 0; index+1 < len(node.Content); index += 2 {
 		keyNode := node.Content[index]
@@ -439,7 +442,16 @@ func decodeDefaultValue(dst reflect.Value, node *goyaml.Node, path string) error
 	if !dst.IsValid() || !dst.CanAddr() {
 		return fmt.Errorf("default for %s cannot be assigned", path)
 	}
-	if err := jyaml.UnmarshalNode(node, dst.Addr().Interface()); err != nil {
+
+	var err error
+	if node != nil && node.Kind == goyaml.ScalarNode {
+		// Scalar defaults cannot contain nested JSON-tagged fields,
+		// so a direct node decode avoids cloning the one-node graph first.
+		err = node.Decode(dst.Addr().Interface())
+	} else {
+		err = jyaml.UnmarshalNode(node, dst.Addr().Interface())
+	}
+	if err != nil {
 		return fmt.Errorf("default for %s: %w", path, err)
 	}
 
