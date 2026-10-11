@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
-## Unreleased
+## [0.4.0][] - 2026-10-11
 
 ### Added
 
@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning][].
 * Expansion, strict validation, defaults, and noexpand policies
   use shared schema metadata and effective paths
   through YAML aliases and merges.
+
+[0.4.0]: https://github.com/WoozyMasta/jamle/compare/v0.3.0...v0.4.0
 
 ## [0.3.0][] - 2026-04-10
 
