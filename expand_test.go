@@ -89,6 +89,24 @@ func TestExpandEnvInScalar_LazyBranches(t *testing.T) {
 			values: map[string]string{},
 			want:   `{"x":1}`,
 		},
+		{
+			name:   "quoted literal braces",
+			input:  `${A:-{"x":"}"}}`,
+			values: map[string]string{"A": "ok"},
+			want:   "ok",
+		},
+		{
+			name:   "quoted literal braces default",
+			input:  `${A:-{"x":"}"}}`,
+			values: map[string]string{},
+			want:   `{"x":"}"}`,
+		},
+		{
+			name:   "escaped quote before literal brace",
+			input:  `${A:-{"x":"escaped \" }"}}`,
+			values: map[string]string{},
+			want:   `{"x":"escaped \" }"}`,
+		},
 	}
 
 	for _, test := range tests {
@@ -230,6 +248,14 @@ func TestExpandEnvInScalar_EscapingAndMalformedInput(t *testing.T) {
 
 	if got, err := expandEnvInScalar("$${A", opts); err != nil || got != "$${A" {
 		t.Fatalf("escaped unmatched expression: got %q, err %v", got, err)
+	}
+	if got, err := expandEnvInScalar(`$${A:-${B:-${C}}}`, runtimeOptions{
+		resolver:        resolver,
+		maxDepth:        1,
+		allowAssignment: true,
+		enforceRequired: true,
+	}); err != nil || got != `${A:-${B:-${C}}}` {
+		t.Fatalf("deep escaped expression: got %q, err %v", got, err)
 	}
 	if _, err := expandEnvInScalar("${A", opts); !errors.Is(err, ErrExpansionSyntax) {
 		t.Fatalf("expected ErrExpansionSyntax, got %v", err)

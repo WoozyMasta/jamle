@@ -96,6 +96,21 @@ func TestForJSONFieldRules(t *testing.T) {
 	}
 }
 
+func TestForTreatsJSONTagWithOptionsAsFieldName(t *testing.T) {
+	t.Parallel()
+
+	config := reflect.StructOf([]reflect.StructField{{
+		Name: "Value",
+		Type: reflect.TypeFor[string](),
+		Tag:  `json:"-,omitempty"`,
+	}})
+
+	field, ok := For(config).Lookup("-")
+	if !ok || field.JSONName != "-" {
+		t.Fatalf("json tag with options was not retained as a field: %#v, %t", field, ok)
+	}
+}
+
 func TestForTaggedFieldWins(t *testing.T) {
 	type config struct {
 		schemaTaggedLeft

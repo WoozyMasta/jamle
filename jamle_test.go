@@ -993,6 +993,61 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown fields do not expand", func(t *testing.T) {
+		t.Parallel()
+
+		type config struct {
+			Known string `json:"known"`
+		}
+		resolver := mapResolverWithSet{values: map[string]string{}}
+		var got config
+		err := UnmarshalWithOptions(
+			[]byte("known: ok\nunknown: ${MISSING:=changed}\n"),
+			&got,
+			UnmarshalOptions{Resolver: resolver},
+		)
+		if err != nil {
+			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+		if got.Known != "ok" {
+			t.Fatalf("known field mismatch: %#v", got)
+		}
+		if _, ok := resolver.values["MISSING"]; ok {
+			t.Fatal("unknown field assignment changed resolver state")
+		}
+
+		resolver = mapResolverWithSet{values: map[string]string{}}
+		err = UnmarshalWithOptions(
+			[]byte("unknown: ${MISSING:?boom}\n"),
+			&got,
+			UnmarshalOptions{Resolver: resolver},
+		)
+		if err != nil {
+			t.Fatalf("unknown required field returned error: %v", err)
+		}
+	})
+
+	t.Run("strict unknown fields do not trigger side effects", func(t *testing.T) {
+		t.Parallel()
+
+		type config struct {
+			Known string `json:"known"`
+		}
+		resolver := mapResolverWithSet{values: map[string]string{}}
+		var got config
+		err := UnmarshalWithOptions(
+			[]byte("unknown: ${MISSING:=changed}\n"),
+			&got,
+			UnmarshalOptions{Resolver: resolver, Strict: true},
+		)
+		if err == nil || !strings.Contains(err.Error(), `unknown field "unknown"`) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := resolver.values["MISSING"]; ok {
+			t.Fatal("strict unknown field assignment changed resolver state")
+		}
+	})
+
 	t.Run("map any remains open", func(t *testing.T) {
 		t.Parallel()
 
@@ -1003,6 +1058,30 @@ func TestUnmarshalWithOptions_StrictPipeline(t *testing.T) {
 			UnmarshalOptions{Strict: true},
 		); err != nil {
 			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+	})
+
+	t.Run("expanded key is checked before field policy", func(t *testing.T) {
+		t.Parallel()
+
+		type config struct {
+			Known string `json:"known"`
+		}
+		resolver := mapResolverWithSet{values: map[string]string{
+			"KEY":     "known",
+			"MISSING": "",
+		}}
+		var got config
+		err := UnmarshalWithOptions(
+			[]byte("${KEY}: ${MISSING:=changed}\n"),
+			&got,
+			UnmarshalOptions{Resolver: resolver, ExpandKeys: true},
+		)
+		if err != nil {
+			t.Fatalf("UnmarshalWithOptions returned error: %v", err)
+		}
+		if got.Known != "changed" || resolver.values["MISSING"] != "changed" {
+			t.Fatalf("expanded known field mismatch: value=%#v resolver=%#v", got, resolver.values)
 		}
 	})
 }

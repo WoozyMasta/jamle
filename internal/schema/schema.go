@@ -277,11 +277,12 @@ func ignoredYAMLKeysSeen(t reflect.Type, active map[reflect.Type]bool) []string 
 	for index := 0; index < t.NumField(); index++ {
 		field := t.Field(index)
 		jsonKey, _ := jsonName(field)
+		jsonIgnored := field.Tag.Get("json") == "-"
 		yamlTag := field.Tag.Get("yaml")
 		yamlKey := splitTag(yamlTag)
 		embedded := embeddedType(field.Type)
 
-		if jsonKey == "-" {
+		if jsonIgnored {
 			if yamlKey == "-" {
 				continue
 			}
@@ -572,8 +573,7 @@ func shouldSkip(sf reflect.StructField) bool {
 		return true
 	}
 
-	name, _ := jsonName(sf)
-	return name == "-"
+	return sf.Tag.Get("json") == "-"
 }
 
 // jsonName returns the valid JSON tag name and whether it was explicitly set.

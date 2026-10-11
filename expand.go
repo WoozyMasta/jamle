@@ -255,7 +255,12 @@ func (t *logicalNodeTransformer) transformMapping(
 			childType = field.Type
 		}
 
-		childExpand := expand && (!fieldFound || !field.NoExpand)
+		childExpand := expand
+		if expand && fields != nil {
+			// Typed structs discard unknown fields after decoding,
+			// so do not evaluate expressions or assignments in those subtrees.
+			childExpand = fieldFound && !field.NoExpand
+		}
 		transformed, err := t.transform(valueNode, nextPath, childType, childExpand)
 		if err != nil {
 			return nil, err
@@ -451,8 +456,8 @@ func parseExpansionTemplate(input string, maxDepth int) ([]templateSegment, erro
 
 	for i := 0; i < len(input); {
 		if i+2 < len(input) && input[i] == '$' && input[i+1] == '$' && input[i+2] == '{' {
-			// Keep $${...} literal, but parse it to locate its balanced end.
-			_, end, err := parser.parseExpression(i+1, 1)
+			// Keep $${...} literal, but scan it to locate its balanced end.
+			end, err := parser.scanExpressionEnd(i + 1)
 			if err != nil {
 				if errors.Is(err, ErrExpansionSyntax) {
 					flushLiteral(len(input))
@@ -536,6 +541,7 @@ func (p expansionParser) parseWord(start, depth int) ([]templateSegment, int, er
 	segments := make([]templateSegment, 0, 2)
 	literalStart := start
 	braceDepth := 0
+	var quote byte
 
 	flushLiteral := func(end int) {
 		if end <= literalStart {
@@ -547,7 +553,7 @@ func (p expansionParser) parseWord(start, depth int) ([]templateSegment, int, er
 	for i := start; i < len(p.input); {
 		if i+2 < len(p.input) && p.input[i] == '$' && p.input[i+1] == '$' && p.input[i+2] == '{' {
 			// Keep nested $${...} literal while finding its balanced end.
-			_, end, err := p.parseExpression(i+1, depth+1)
+			end, err := p.scanExpressionEnd(i + 1)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -573,10 +579,32 @@ func (p expansionParser) parseWord(start, depth int) ([]templateSegment, int, er
 		}
 
 		switch p.input[i] {
+		case '"', '\'':
+			switch quote {
+			case 0:
+				quote = p.input[i]
+			case p.input[i]:
+				quote = 0
+			}
+
+		case '\\':
+			if quote != 0 && i+1 < len(p.input) {
+				i += 2
+				continue
+			}
+
 		case '{':
+			if quote != 0 {
+				i++
+				continue
+			}
 			braceDepth++
 
 		case '}':
+			if quote != 0 {
+				i++
+				continue
+			}
 			if braceDepth > 0 {
 				braceDepth--
 				i++
@@ -591,6 +619,72 @@ func (p expansionParser) parseWord(start, depth int) ([]templateSegment, int, er
 	}
 
 	return nil, 0, expansionSyntaxError(start)
+}
+
+// scanExpressionEnd finds one balanced expression without evaluating it.
+func (p expansionParser) scanExpressionEnd(start int) (int, error) {
+	if start < 0 || start+1 >= len(p.input) || p.input[start:start+2] != "${" {
+		return 0, expansionSyntaxError(start)
+	}
+
+	type frame struct {
+		braceDepth int
+		quote      byte
+	}
+	frames := []frame{{}}
+
+	for i := start + 2; i < len(p.input); {
+		current := &frames[len(frames)-1]
+		if i+1 < len(p.input) && p.input[i] == '$' && p.input[i+1] == '{' {
+			frames = append(frames, frame{})
+			i += 2
+			continue
+		}
+
+		if i+2 < len(p.input) && p.input[i] == '$' &&
+			p.input[i+1] == '$' && p.input[i+2] == '{' {
+			frames = append(frames, frame{})
+			i += 3
+			continue
+		}
+
+		if current.quote != 0 {
+			if p.input[i] == '\\' && i+1 < len(p.input) {
+				i += 2
+				continue
+			}
+
+			if p.input[i] == current.quote {
+				current.quote = 0
+			}
+			i++
+
+			continue
+		}
+
+		switch p.input[i] {
+		case '"', '\'':
+			current.quote = p.input[i]
+
+		case '{':
+			current.braceDepth++
+
+		case '}':
+			if current.braceDepth > 0 {
+				current.braceDepth--
+				i++
+				continue
+			}
+
+			frames = frames[:len(frames)-1]
+			if len(frames) == 0 {
+				return i + 1, nil
+			}
+		}
+		i++
+	}
+
+	return 0, expansionSyntaxError(start)
 }
 
 // appendTemplateLiteral appends literal text and coalesces adjacent segments.
