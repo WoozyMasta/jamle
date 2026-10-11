@@ -55,6 +55,33 @@ func TestUnmarshalAuto(t *testing.T) {
 		}
 	})
 
+	t.Run("yaml flow style with comment by content", func(t *testing.T) {
+		t.Parallel()
+
+		var got cfg
+		if err := UnmarshalAuto([]byte("{a: 1} # YAML comment\n"), &got, AutoOptions{}); err != nil {
+			t.Fatalf("UnmarshalAuto returned error: %v", err)
+		}
+		if got.A != "1" {
+			t.Fatalf("value mismatch: got %q, want %q", got.A, "1")
+		}
+	})
+
+	t.Run("valid json keeps json type errors", func(t *testing.T) {
+		t.Parallel()
+
+		var got struct {
+			A string `json:"a"`
+		}
+		err := UnmarshalAuto([]byte(`{"a":1}`), &got, AutoOptions{})
+		if err == nil {
+			t.Fatal("expected JSON type error")
+		}
+		if !strings.Contains(err.Error(), "cannot unmarshal number into Go struct field") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("json with trailing garbage fails", func(t *testing.T) {
 		t.Parallel()
 

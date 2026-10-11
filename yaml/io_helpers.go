@@ -146,7 +146,7 @@ func resolveFormat(path string, data []byte, format Format, usePath bool) (Forma
 				return byPath, nil
 			}
 		}
-		return detectFormatByContent(data), nil
+		return detectFormatByContent(data)
 
 	default:
 		return "", fmt.Errorf("%w: %q", ErrInvalidFormat, format)
@@ -168,21 +168,33 @@ func detectFormatByPath(path string) (Format, bool) {
 	}
 }
 
-// detectFormatByContent detects input format from first significant byte.
-func detectFormatByContent(data []byte) Format {
+// detectFormatByContent detects JSON syntax before falling back to YAML.
+func detectFormatByContent(data []byte) (Format, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
-		return FormatYAML
+		return FormatYAML, nil
 	}
 
-	// JSON and YAML flow-style can both start with '{'/'['.
-	// Keep auto mode ambiguous and let decoder probing decide.
-	switch trimmed[0] {
-	case '{', '[':
-		return FormatAuto
-	default:
-		return FormatYAML
+	if json.Valid(trimmed) {
+		return FormatJSON, nil
 	}
+
+	// A valid JSON value followed by non-whitespace is a JSON trailing-data error,
+	// not a reason to reinterpret the input as YAML.
+	// Restrict this check to object and array prefixes so valid scalar YAML remains YAML.
+	if trimmed[0] == '{' || trimmed[0] == '[' {
+		var value json.RawMessage
+		dec := json.NewDecoder(bytes.NewReader(trimmed))
+		if err := dec.Decode(&value); err == nil {
+			if _, yamlErr := decodeSingleDocument(trimmed); yamlErr == nil {
+				return FormatYAML, nil
+			}
+
+			return "", ErrJSONTrailingData
+		}
+	}
+
+	return FormatYAML, nil
 }
 
 // unmarshalByFormat decodes data according to selected format.
@@ -198,20 +210,7 @@ func unmarshalByFormat(data []byte, v any, format Format, strict bool) error {
 		return unmarshalJSON(data, v, strict)
 
 	case FormatAuto:
-		if err := unmarshalJSON(data, v, strict); err == nil {
-			return nil
-		} else if errors.Is(err, ErrJSONTrailingData) {
-			return err
-		} else if strict {
-			// Preserve JSON decoder errors for valid JSON while allowing flow-style YAML.
-			if json.Valid(bytes.TrimSpace(data)) {
-				return err
-			}
-
-			return UnmarshalWithOptions(data, v, DecodeOptions{Strict: true})
-		}
-
-		return Unmarshal(data, v)
+		return fmt.Errorf("%w: unresolved automatic format", ErrInvalidFormat)
 
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidFormat, format)
